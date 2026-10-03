@@ -1,0 +1,3 @@
+<resources>
+    <string name="accessibility_service_description">Automates closing Spotify when an advertisement is detected to immediately resume your music playlist.</string>
+</resources>

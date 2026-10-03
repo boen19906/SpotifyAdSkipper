@@ -1,0 +1,7 @@
+{
+  "name": "spotify-ad-skipper",
+  "platforms": ["android"],
+  "android": {
+    "modules": ["expo.modules.spotifyadskipper.SpotifyAdSkipperModule"]
+  }
+}
