@@ -12,7 +12,7 @@
     "android": {
       "package": "com.spotifyadskip.app",
       "adaptiveIcon": {
-        "backgroundColor": "#121212",
+        "backgroundColor": "#0C121E",
         "foregroundImage": "./assets/android-icon-foreground.png",
         "backgroundImage": "./assets/android-icon-background.png",
         "monochromeImage": "./assets/android-icon-monochrome.png"
