@@ -3,25 +3,24 @@ import {
   StyleSheet,
   View,
   ScrollView,
-  SafeAreaView,
   StatusBar,
   AppState,
   AppStateStatus,
   Alert,
-  TouchableOpacity,
-  Text,
 } from 'react-native';
 import * as Haptics from 'expo-haptics';
-import { Ionicons } from '@expo/vector-icons';
 
 import { Header } from './components/Header';
-import { MasterPowerCard } from './components/MasterPowerCard';
+import { HeroCard } from './components/HeroCard';
+import { CategoryPills, FilterCategory } from './components/CategoryPills';
 import { ServiceStatusList } from './components/ServiceStatusList';
-import { NowPlayingCard } from './components/NowPlayingCard';
 import { StatsOverview } from './components/StatsOverview';
 import { HistoryList } from './components/HistoryList';
+import { BottomNav, BottomNavTab } from './components/BottomNav';
 import { SetupGuideModal } from './components/SetupGuideModal';
 import { SettingsModal } from './components/SettingsModal';
+
+import { lightTheme, darkTheme } from './theme';
 
 import {
   isServiceRunning,
@@ -53,7 +52,23 @@ import {
   SkipRecord,
 } from './storage/historyStorage';
 
+import {
+  getStoredTheme,
+  saveStoredTheme,
+  getStoredConfig,
+  saveStoredConfig,
+} from './storage/settingsStorage';
+
 export default function App() {
+  // Theme state: defaults to light mode to match the inspired editorial screenshot, but fully supports dark mode!
+  const [isDark, setIsDark] = useState(false);
+  const theme = isDark ? darkTheme : lightTheme;
+
+  // Navigation tab & filter state
+  const [activeTab, setActiveTab] = useState<BottomNavTab>('skipper');
+  const [selectedCategory, setSelectedCategory] = useState<FilterCategory>('all');
+
+  // Service & Protection state
   const [isEnabled, setIsEnabled] = useState(true);
   const [serviceRunning, setServiceRunning] = useState(false);
   const [notificationGranted, setNotificationGranted] = useState(false);
@@ -114,13 +129,33 @@ export default function App() {
   // Initialize data on mount
   useEffect(() => {
     async function loadData() {
-      const [storedStats, storedHistory] = await Promise.all([
+      const [storedStats, storedHistory, storedTheme, storedConfig] = await Promise.all([
         getStoredStats(),
         getStoredHistory(),
+        getStoredTheme(),
+        getStoredConfig(),
       ]);
       setTotalSkipped(storedStats.totalSkipped);
       setTotalSecondsSaved(storedStats.totalSecondsSaved);
       setHistory(storedHistory);
+
+      if (storedTheme !== null) {
+        setIsDark(storedTheme);
+      }
+
+      if (storedConfig) {
+        setConfigState((prev) => ({ ...prev, ...storedConfig }));
+        if (typeof storedConfig.isEnabled === 'boolean') {
+          setIsEnabled(storedConfig.isEnabled);
+        }
+        setConfig(
+          storedConfig.isEnabled ?? true,
+          storedConfig.autoMute ?? true,
+          storedConfig.restartDelayMs ?? 800,
+          storedConfig.relaunchWaitMs ?? 2500
+        );
+      }
+
       refreshSystemStatus();
 
       // Automatically start background service if enabled
@@ -200,7 +235,7 @@ export default function App() {
   }, []);
 
   // Handlers
-  const handleTogglePower = (newVal: boolean) => {
+  const handleTogglePower = async (newVal: boolean) => {
     setIsEnabled(newVal);
     setConfig(
       newVal,
@@ -208,6 +243,12 @@ export default function App() {
       config.restartDelayMs,
       config.relaunchWaitMs
     );
+    const updated = {
+      ...config,
+      isEnabled: newVal,
+    };
+    setConfigState(updated);
+    await saveStoredConfig(updated);
 
     if (newVal) {
       startForegroundService();
@@ -229,18 +270,6 @@ export default function App() {
     try {
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     } catch {}
-  };
-
-  const handleRequestNotification = () => {
-    openNotificationAccessSettings();
-  };
-
-  const handleRequestAccessibility = () => {
-    openAccessibilitySettings();
-  };
-
-  const handleRequestBattery = () => {
-    requestIgnoreBatteryOptimizations();
   };
 
   const handleOpenSpotify = () => {
@@ -307,7 +336,13 @@ export default function App() {
     );
   };
 
-  const handleSaveConfig = (newCfg: {
+  const handleToggleTheme = async () => {
+    const nextDark = !isDark;
+    setIsDark(nextDark);
+    await saveStoredTheme(nextDark);
+  };
+
+  const handleSaveConfig = async (newCfg: {
     enabled: boolean;
     autoMute: boolean;
     restartDelayMs: number;
@@ -319,85 +354,144 @@ export default function App() {
       newCfg.restartDelayMs,
       newCfg.relaunchWaitMs
     );
-    setConfigState({
+    const updated = {
       ...config,
       ...newCfg,
-    });
+    };
+    setConfigState(updated);
+    await saveStoredConfig(updated);
   };
 
-  return (
-    <SafeAreaView style={styles.safeArea}>
-      <StatusBar barStyle="light-content" backgroundColor="#0D0F12" />
+  const handleSelectCategory = (cat: FilterCategory) => {
+    setSelectedCategory(cat);
+    if (cat === 'settings') {
+      setSettingsVisible(true);
+    } else if (cat === 'readiness') {
+      setActiveTab('readiness');
+    } else if (cat === 'stats' || cat === 'activity') {
+      setActiveTab('activity');
+    } else {
+      setActiveTab('skipper');
+    }
+  };
 
-      {/* Header */}
-      <Header
-        isActive={isEnabled && serviceRunning}
-        onOpenGuide={() => setGuideVisible(true)}
+  const handleSelectTab = (tab: BottomNavTab) => {
+    setActiveTab(tab);
+    if (tab === 'skipper') setSelectedCategory('all');
+    if (tab === 'activity') setSelectedCategory('stats');
+    if (tab === 'readiness') setSelectedCategory('readiness');
+  };
+
+  // Determine what components to show based on selected category / active tab
+  const showHero = activeTab === 'skipper' || selectedCategory === 'all';
+  const showReadiness =
+    activeTab === 'readiness' ||
+    selectedCategory === 'all' ||
+    selectedCategory === 'readiness';
+  const showStats =
+    activeTab === 'activity' ||
+    selectedCategory === 'all' ||
+    selectedCategory === 'stats';
+  const showHistory =
+    activeTab === 'activity' ||
+    selectedCategory === 'all' ||
+    selectedCategory === 'activity';
+
+  return (
+    <View style={[styles.mainWrapper, { backgroundColor: theme.background }]}>
+      <StatusBar
+        barStyle={isDark ? 'light-content' : 'dark-content'}
+        backgroundColor={theme.background}
       />
 
+      {/* Header with time-of-day greeting, editorial title and status pill */}
+      <Header
+        theme={theme}
+        isDark={isDark}
+        isActive={isEnabled && serviceRunning}
+        onToggleTheme={handleToggleTheme}
+        onOpenGuide={() => setGuideVisible(true)}
+        onOpenSettings={() => setSettingsVisible(true)}
+      />
+
+      {/* Main Scroll Content with safe bottom padding for Android navigation */}
       <ScrollView
         style={styles.scrollArea}
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
       >
-        {/* Master Power Switch Card */}
-        <MasterPowerCard
-          isEnabled={isEnabled}
-          onToggle={handleTogglePower}
-          onOpenSpotify={handleOpenSpotify}
-          isSpotifyInstalled={spotifyInstalled}
-        />
+        {/* Hero Card inspired by the reference "Unwind" card */}
+        {showHero && (
+          <HeroCard
+            theme={theme}
+            isEnabled={isEnabled}
+            onTogglePower={handleTogglePower}
+            onOpenSpotify={handleOpenSpotify}
+            isSpotifyInstalled={spotifyInstalled}
+            track={currentTrack}
+            artist={currentArtist}
+            album={currentAlbum}
+            isPlaying={isPlaying}
+            isAd={isAd}
+            isSkippingInProgress={isSkipping}
+          />
+        )}
 
-        {/* Live Now Playing Monitor */}
-        <NowPlayingCard
-          track={currentTrack}
-          artist={currentArtist}
-          album={currentAlbum}
-          isPlaying={isPlaying}
-          isAd={isAd}
-          isSkippingInProgress={isSkipping}
+        {/* Section Filter Pills inspired by "Choose an intent" */}
+        <CategoryPills
+          theme={theme}
+          isDark={isDark}
+          selectedCategory={selectedCategory}
+          onSelectCategory={handleSelectCategory}
         />
 
         {/* System Readiness Checklist */}
-        <ServiceStatusList
-          isServiceRunning={serviceRunning}
-          isNotificationGranted={notificationGranted}
-          isAccessibilityGranted={accessibilityGranted}
-          isBatteryOptimized={batteryOptimized}
-          onToggleService={handleToggleService}
-          onRequestNotificationAccess={handleRequestNotification}
-          onRequestAccessibility={handleRequestAccessibility}
-          onRequestBatteryExemption={handleRequestBattery}
-          onOpenBroadcastGuide={() => setGuideVisible(true)}
-        />
+        {showReadiness && (
+          <ServiceStatusList
+            theme={theme}
+            isServiceRunning={serviceRunning}
+            isNotificationGranted={notificationGranted}
+            isAccessibilityGranted={accessibilityGranted}
+            isBatteryOptimized={batteryOptimized}
+            onToggleService={handleToggleService}
+            onRequestNotificationAccess={openNotificationAccessSettings}
+            onRequestAccessibility={openAccessibilitySettings}
+            onRequestBatteryExemption={requestIgnoreBatteryOptimizations}
+            onOpenBroadcastGuide={() => setGuideVisible(true)}
+          />
+        )}
 
         {/* Stats & Loophole Testing */}
-        <StatsOverview
-          totalSkipped={totalSkipped}
-          totalSecondsSaved={totalSecondsSaved}
-          onTestLoophole={handleTestLoophole}
-          isSkipping={isSkipping}
-        />
+        {showStats && (
+          <StatsOverview
+            theme={theme}
+            totalSkipped={totalSkipped}
+            totalSecondsSaved={totalSecondsSaved}
+            onTestLoophole={handleTestLoophole}
+            isSkipping={isSkipping}
+          />
+        )}
 
-        {/* Quick Settings Bar */}
-        <View style={styles.settingsBar}>
-          <TouchableOpacity
-            style={styles.settingsButton}
-            onPress={() => setSettingsVisible(true)}
-            activeOpacity={0.7}
-          >
-            <Ionicons name="options-outline" size={16} color="#94A3B8" />
-            <Text style={styles.settingsButtonText}>Loophole Delay & Audio Settings</Text>
-            <Ionicons name="chevron-forward" size={16} color="#64748B" />
-          </TouchableOpacity>
-        </View>
-
-        {/* History Feed */}
-        <HistoryList history={history} onClearHistory={handleClearHistory} />
+        {/* Activity History Feed */}
+        {showHistory && (
+          <HistoryList
+            theme={theme}
+            history={history}
+            onClearHistory={handleClearHistory}
+          />
+        )}
       </ScrollView>
 
-      {/* Modals */}
+      {/* Minimalist Bottom Navigation Bar (like "Library" and "Progress" in reference image) */}
+      <BottomNav
+        theme={theme}
+        activeTab={activeTab}
+        onSelectTab={handleSelectTab}
+      />
+
+      {/* Modals with proper safe insets */}
       <SetupGuideModal
+        theme={theme}
         visible={guideVisible}
         onClose={() => setGuideVisible(false)}
         onOpenSpotifySettings={openSpotifySettings}
@@ -407,46 +501,24 @@ export default function App() {
       />
 
       <SettingsModal
+        theme={theme}
         visible={settingsVisible}
         config={config}
         onClose={() => setSettingsVisible(false)}
         onSaveConfig={handleSaveConfig}
       />
-    </SafeAreaView>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
-  safeArea: {
+  mainWrapper: {
     flex: 1,
-    backgroundColor: '#0D0F12',
   },
   scrollArea: {
     flex: 1,
   },
   scrollContent: {
-    paddingBottom: 24,
-  },
-  settingsBar: {
-    marginHorizontal: 20,
-    marginTop: 14,
-  },
-  settingsButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    backgroundColor: '#161A22',
-    paddingVertical: 12,
-    paddingHorizontal: 16,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: '#262D38',
-  },
-  settingsButtonText: {
-    fontSize: 13,
-    fontWeight: '600',
-    color: '#E2E8F0',
-    flex: 1,
-    marginLeft: 10,
+    paddingBottom: 28,
   },
 });

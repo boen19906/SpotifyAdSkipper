@@ -17,6 +17,11 @@ import java.util.concurrent.atomic.AtomicBoolean
 object SpotifyAdSkipController {
     private const val TAG = "SpotifyAdSkipCtrl"
     const val SPOTIFY_PACKAGE = "com.spotify.music"
+    private const val PREFS_NAME = "spotify_ad_skip_prefs"
+    private const val KEY_ENABLED = "is_enabled"
+    private const val KEY_AUTO_MUTE = "auto_mute"
+    private const val KEY_RESTART_DELAY = "restart_delay_ms"
+    private const val KEY_RELAUNCH_WAIT = "relaunch_wait_ms"
 
     var isEnabled: Boolean = true
     var autoMute: Boolean = true
@@ -24,6 +29,34 @@ object SpotifyAdSkipController {
     var relaunchWaitMs: Long = 2500L
     var adSettleDelayMs: Long = 2000L
     var skipCount: Int = 0
+
+    fun loadPreferences(context: Context) {
+        try {
+            val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            isEnabled = prefs.getBoolean(KEY_ENABLED, true)
+            autoMute = prefs.getBoolean(KEY_AUTO_MUTE, true)
+            restartDelayMs = prefs.getLong(KEY_RESTART_DELAY, 800L)
+            relaunchWaitMs = prefs.getLong(KEY_RELAUNCH_WAIT, 2500L)
+            Log.d(TAG, "Loaded native preferences: isEnabled=$isEnabled, autoMute=$autoMute, restartDelay=$restartDelayMs, relaunchWait=$relaunchWaitMs")
+        } catch (e: Exception) {
+            Log.w(TAG, "Error loading native preferences", e)
+        }
+    }
+
+    fun savePreferences(context: Context) {
+        try {
+            val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            prefs.edit()
+                .putBoolean(KEY_ENABLED, isEnabled)
+                .putBoolean(KEY_AUTO_MUTE, autoMute)
+                .putLong(KEY_RESTART_DELAY, restartDelayMs)
+                .putLong(KEY_RELAUNCH_WAIT, relaunchWaitMs)
+                .apply()
+            Log.d(TAG, "Saved native preferences: isEnabled=$isEnabled, autoMute=$autoMute, restartDelay=$restartDelayMs, relaunchWait=$relaunchWaitMs")
+        } catch (e: Exception) {
+            Log.w(TAG, "Error saving native preferences", e)
+        }
+    }
 
     var isAutomatingForceStop: Boolean = false
     private val isSkipping = AtomicBoolean(false)

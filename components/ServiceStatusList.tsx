@@ -1,8 +1,10 @@
 import React from 'react';
 import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { ThemeColors } from '../theme';
 
 interface ServiceStatusListProps {
+  theme: ThemeColors;
   isServiceRunning: boolean;
   isNotificationGranted: boolean;
   isAccessibilityGranted: boolean;
@@ -15,6 +17,7 @@ interface ServiceStatusListProps {
 }
 
 export const ServiceStatusList: React.FC<ServiceStatusListProps> = ({
+  theme,
   isServiceRunning,
   isNotificationGranted,
   isAccessibilityGranted,
@@ -25,157 +28,296 @@ export const ServiceStatusList: React.FC<ServiceStatusListProps> = ({
   onRequestBatteryExemption,
   onOpenBroadcastGuide,
 }) => {
+  const activeCount = [
+    isServiceRunning,
+    isNotificationGranted,
+    isAccessibilityGranted,
+    isBatteryOptimized,
+  ].filter(Boolean).length;
+
   return (
     <View style={styles.container}>
-      <Text style={styles.sectionHeader}>SYSTEM READINESS & PERMISSIONS</Text>
+      {/* Section Header with count */}
+      <View style={styles.headerRow}>
+        <Text style={[styles.sectionTitle, { color: theme.textPrimary }]}>
+          System readiness
+        </Text>
+        <Text style={[styles.sectionMeta, { color: theme.textSecondary }]}>
+          {activeCount}/4 active
+        </Text>
+      </View>
 
-      {/* 1. Background Service */}
-      <View style={styles.itemRow}>
-        <View style={styles.itemIconCircle}>
-          <Ionicons
-            name="hardware-chip"
-            size={18}
-            color={isServiceRunning ? '#1ED760' : '#E2E8F0'}
-          />
-        </View>
-        <View style={styles.itemContent}>
-          <Text style={styles.itemTitle}>Foreground Monitor Service</Text>
-          <Text style={styles.itemSubtitle}>
-            {isServiceRunning ? 'Running in background' : 'Stopped'}
-          </Text>
-        </View>
+      <View
+        style={[
+          styles.listCard,
+          { backgroundColor: theme.surface, borderColor: theme.border },
+        ]}
+      >
+        {/* 1. Foreground Monitor Service */}
         <TouchableOpacity
-          style={[
-            styles.actionPill,
-            isServiceRunning ? styles.actionPillRunning : styles.actionPillAction,
-          ]}
+          style={[styles.itemRow, { borderBottomColor: theme.borderSubtle }]}
           onPress={onToggleService}
+          activeOpacity={0.7}
         >
-          <Text
+          <View
             style={[
-              styles.actionPillText,
-              isServiceRunning ? styles.actionPillTextRunning : styles.actionPillTextAction,
+              styles.itemSquircle,
+              {
+                backgroundColor: isServiceRunning
+                  ? theme.accentSubtle
+                  : theme.surfaceSubtle,
+              },
             ]}
           >
-            {isServiceRunning ? 'Restart' : 'Start'}
-          </Text>
+            <Ionicons
+              name="hardware-chip-outline"
+              size={18}
+              color={isServiceRunning ? theme.accent : theme.textSecondary}
+            />
+          </View>
+
+          <View style={styles.itemContent}>
+            <Text
+              style={[styles.itemTitle, { color: theme.textPrimary }]}
+              numberOfLines={1}
+            >
+              Background Service
+            </Text>
+            <Text
+              style={[styles.itemSubtitle, { color: theme.textSecondary }]}
+              numberOfLines={1}
+            >
+              {isServiceRunning ? 'Running in background' : 'Stopped · Tap to start'}
+            </Text>
+          </View>
+
+          <View style={styles.rightAction}>
+            <Text
+              style={[
+                styles.actionLabel,
+                { color: isServiceRunning ? theme.accent : theme.textSecondary },
+              ]}
+            >
+              {isServiceRunning ? 'Active' : 'Start'}
+            </Text>
+            <Ionicons
+              name="chevron-forward"
+              size={14}
+              color={isServiceRunning ? theme.accent : theme.textMuted}
+            />
+          </View>
         </TouchableOpacity>
-      </View>
 
-      {/* 2. Notification Listener */}
-      <View style={styles.itemRow}>
-        <View style={styles.itemIconCircle}>
-          <Ionicons
-            name="notifications"
-            size={18}
-            color={isNotificationGranted ? '#1ED760' : '#F59E0B'}
-          />
-        </View>
-        <View style={styles.itemContent}>
-          <Text style={styles.itemTitle}>Notification Listener</Text>
-          <Text style={styles.itemSubtitle}>
-            {isNotificationGranted ? 'Media detection active' : 'Permission needed'}
-          </Text>
-        </View>
-        {isNotificationGranted ? (
-          <View style={styles.grantedBadge}>
-            <Ionicons name="checkmark-circle" size={18} color="#1ED760" />
-            <Text style={styles.grantedText}>Enabled</Text>
-          </View>
-        ) : (
-          <TouchableOpacity
-            style={[styles.actionPill, styles.actionPillWarning]}
-            onPress={onRequestNotificationAccess}
-          >
-            <Text style={[styles.actionPillText, styles.actionPillTextWarning]}>
-              Grant Access
-            </Text>
-          </TouchableOpacity>
-        )}
-      </View>
-
-      {/* 3. Auto-Exit Accessibility Service (Required for Android 14+) */}
-      <View style={styles.itemRow}>
-        <View style={styles.itemIconCircle}>
-          <Ionicons
-            name="power"
-            size={18}
-            color={isAccessibilityGranted ? '#1ED760' : '#F59E0B'}
-          />
-        </View>
-        <View style={styles.itemContent}>
-          <Text style={styles.itemTitle}>Auto-Exit Accessibility Service</Text>
-          <Text style={styles.itemSubtitle}>
-            {isAccessibilityGranted
-              ? 'Automatic Force-Stop enabled'
-              : 'Required on Android 14+ to exit Spotify'}
-          </Text>
-        </View>
-        {isAccessibilityGranted ? (
-          <View style={styles.grantedBadge}>
-            <Ionicons name="checkmark-circle" size={18} color="#1ED760" />
-            <Text style={styles.grantedText}>Enabled</Text>
-          </View>
-        ) : (
-          <TouchableOpacity
-            style={[styles.actionPill, styles.actionPillWarning]}
-            onPress={onRequestAccessibility}
-          >
-            <Text style={[styles.actionPillText, styles.actionPillTextWarning]}>
-              Enable Service
-            </Text>
-          </TouchableOpacity>
-        )}
-      </View>
-
-      {/* 4. Battery Optimization */}
-      <View style={styles.itemRow}>
-        <View style={styles.itemIconCircle}>
-          <Ionicons
-            name="battery-charging"
-            size={18}
-            color={isBatteryOptimized ? '#1ED760' : '#F59E0B'}
-          />
-        </View>
-        <View style={styles.itemContent}>
-          <Text style={styles.itemTitle}>Battery Optimization</Text>
-          <Text style={styles.itemSubtitle}>
-            {isBatteryOptimized ? 'Exempt (won’t sleep)' : 'May be killed by OS'}
-          </Text>
-        </View>
-        {isBatteryOptimized ? (
-          <View style={styles.grantedBadge}>
-            <Ionicons name="checkmark-circle" size={18} color="#1ED760" />
-            <Text style={styles.grantedText}>Exempt</Text>
-          </View>
-        ) : (
-          <TouchableOpacity
-            style={[styles.actionPill, styles.actionPillWarning]}
-            onPress={onRequestBatteryExemption}
-          >
-            <Text style={[styles.actionPillText, styles.actionPillTextWarning]}>
-              Exempt App
-            </Text>
-          </TouchableOpacity>
-        )}
-      </View>
-
-      {/* 5. Spotify Broadcast Status */}
-      <View style={[styles.itemRow, styles.itemRowLast]}>
-        <View style={styles.itemIconCircle}>
-          <Ionicons name="radio" size={18} color="#1DB954" />
-        </View>
-        <View style={styles.itemContent}>
-          <Text style={styles.itemTitle}>Spotify Broadcast Status</Text>
-          <Text style={styles.itemSubtitle}>Enable in Spotify settings</Text>
-        </View>
+        {/* 2. Notification Listener */}
         <TouchableOpacity
-          style={[styles.actionPill, styles.actionPillOutline]}
-          onPress={onOpenBroadcastGuide}
+          style={[styles.itemRow, { borderBottomColor: theme.borderSubtle }]}
+          onPress={isNotificationGranted ? undefined : onRequestNotificationAccess}
+          activeOpacity={isNotificationGranted ? 1 : 0.7}
         >
-          <Text style={[styles.actionPillText, styles.actionPillTextOutline]}>
-            Setup Guide
-          </Text>
+          <View
+            style={[
+              styles.itemSquircle,
+              {
+                backgroundColor: isNotificationGranted
+                  ? theme.accentSubtle
+                  : theme.warningSubtle,
+              },
+            ]}
+          >
+            <Ionicons
+              name="notifications-outline"
+              size={18}
+              color={isNotificationGranted ? theme.accent : theme.warning}
+            />
+          </View>
+
+          <View style={styles.itemContent}>
+            <Text
+              style={[styles.itemTitle, { color: theme.textPrimary }]}
+              numberOfLines={1}
+            >
+              Notification Access
+            </Text>
+            <Text
+              style={[styles.itemSubtitle, { color: theme.textSecondary }]}
+              numberOfLines={1}
+            >
+              {isNotificationGranted ? 'Media detection active' : 'Permission needed'}
+            </Text>
+          </View>
+
+          <View style={styles.rightAction}>
+            <Text
+              style={[
+                styles.actionLabel,
+                { color: isNotificationGranted ? theme.accent : theme.warning },
+              ]}
+            >
+              {isNotificationGranted ? 'Active' : 'Grant'}
+            </Text>
+            <Ionicons
+              name="chevron-forward"
+              size={14}
+              color={isNotificationGranted ? theme.accent : theme.warning}
+            />
+          </View>
+        </TouchableOpacity>
+
+        {/* 3. Accessibility Service */}
+        <TouchableOpacity
+          style={[styles.itemRow, { borderBottomColor: theme.borderSubtle }]}
+          onPress={isAccessibilityGranted ? undefined : onRequestAccessibility}
+          activeOpacity={isAccessibilityGranted ? 1 : 0.7}
+        >
+          <View
+            style={[
+              styles.itemSquircle,
+              {
+                backgroundColor: isAccessibilityGranted
+                  ? theme.accentSubtle
+                  : theme.warningSubtle,
+              },
+            ]}
+          >
+            <Ionicons
+              name="power-outline"
+              size={18}
+              color={isAccessibilityGranted ? theme.accent : theme.warning}
+            />
+          </View>
+
+          <View style={styles.itemContent}>
+            <Text
+              style={[styles.itemTitle, { color: theme.textPrimary }]}
+              numberOfLines={1}
+            >
+              Auto-Exit Service
+            </Text>
+            <Text
+              style={[styles.itemSubtitle, { color: theme.textSecondary }]}
+              numberOfLines={1}
+            >
+              {isAccessibilityGranted
+                ? 'Force-stop automation ready'
+                : 'Needed for Android 14+'}
+            </Text>
+          </View>
+
+          <View style={styles.rightAction}>
+            <Text
+              style={[
+                styles.actionLabel,
+                { color: isAccessibilityGranted ? theme.accent : theme.warning },
+              ]}
+            >
+              {isAccessibilityGranted ? 'Active' : 'Enable'}
+            </Text>
+            <Ionicons
+              name="chevron-forward"
+              size={14}
+              color={isAccessibilityGranted ? theme.accent : theme.warning}
+            />
+          </View>
+        </TouchableOpacity>
+
+        {/* 4. Battery Optimization */}
+        <TouchableOpacity
+          style={[styles.itemRow, { borderBottomColor: theme.borderSubtle }]}
+          onPress={isBatteryOptimized ? undefined : onRequestBatteryExemption}
+          activeOpacity={isBatteryOptimized ? 1 : 0.7}
+        >
+          <View
+            style={[
+              styles.itemSquircle,
+              {
+                backgroundColor: isBatteryOptimized
+                  ? theme.accentSubtle
+                  : theme.warningSubtle,
+              },
+            ]}
+          >
+            <Ionicons
+              name="battery-charging-outline"
+              size={18}
+              color={isBatteryOptimized ? theme.accent : theme.warning}
+            />
+          </View>
+
+          <View style={styles.itemContent}>
+            <Text
+              style={[styles.itemTitle, { color: theme.textPrimary }]}
+              numberOfLines={1}
+            >
+              Battery Exemption
+            </Text>
+            <Text
+              style={[styles.itemSubtitle, { color: theme.textSecondary }]}
+              numberOfLines={1}
+            >
+              {isBatteryOptimized
+                ? 'Unrestricted background runs'
+                : 'May sleep when locked'}
+            </Text>
+          </View>
+
+          <View style={styles.rightAction}>
+            <Text
+              style={[
+                styles.actionLabel,
+                { color: isBatteryOptimized ? theme.accent : theme.warning },
+              ]}
+            >
+              {isBatteryOptimized ? 'Exempt' : 'Fix'}
+            </Text>
+            <Ionicons
+              name="chevron-forward"
+              size={14}
+              color={isBatteryOptimized ? theme.accent : theme.warning}
+            />
+          </View>
+        </TouchableOpacity>
+
+        {/* 5. Spotify Broadcast Guide */}
+        <TouchableOpacity
+          style={[styles.itemRow, styles.itemRowLast]}
+          onPress={onOpenBroadcastGuide}
+          activeOpacity={0.7}
+        >
+          <View
+            style={[styles.itemSquircle, { backgroundColor: theme.surfaceSubtle }]}
+          >
+            <Ionicons
+              name="radio-outline"
+              size={18}
+              color={theme.accent}
+            />
+          </View>
+
+          <View style={styles.itemContent}>
+            <Text
+              style={[styles.itemTitle, { color: theme.textPrimary }]}
+              numberOfLines={1}
+            >
+              Spotify Broadcast Setup
+            </Text>
+            <Text
+              style={[styles.itemSubtitle, { color: theme.textSecondary }]}
+              numberOfLines={1}
+            >
+              Device broadcast status guide
+            </Text>
+          </View>
+
+          <View style={styles.rightAction}>
+            <Text style={[styles.actionLabel, { color: theme.textSecondary }]}>
+              Guide
+            </Text>
+            <Ionicons
+              name="chevron-forward"
+              size={14}
+              color={theme.textMuted}
+            />
+          </View>
         </TouchableOpacity>
       </View>
     </View>
@@ -184,103 +326,69 @@ export const ServiceStatusList: React.FC<ServiceStatusListProps> = ({
 
 const styles = StyleSheet.create({
   container: {
-    backgroundColor: '#161A22',
-    borderRadius: 16,
-    padding: 16,
     marginHorizontal: 20,
-    marginTop: 16,
-    borderWidth: 1,
-    borderColor: '#262D38',
+    marginTop: 20,
   },
-  sectionHeader: {
-    fontSize: 11,
+  headerRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 10,
+  },
+  sectionTitle: {
+    fontSize: 16,
     fontWeight: '700',
-    color: '#64748B',
-    letterSpacing: 0.8,
-    marginBottom: 12,
+    letterSpacing: -0.2,
+  },
+  sectionMeta: {
+    fontSize: 13,
+    fontWeight: '500',
+  },
+  listCard: {
+    borderRadius: 20,
+    borderWidth: 1,
+    overflow: 'hidden',
   },
   itemRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: 10,
+    paddingVertical: 12,
+    paddingHorizontal: 12,
     borderBottomWidth: 1,
-    borderBottomColor: '#262D3840',
   },
   itemRowLast: {
     borderBottomWidth: 0,
-    paddingBottom: 2,
   },
-  itemIconCircle: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    backgroundColor: '#1E232B',
+  itemSquircle: {
+    width: 38,
+    height: 38,
+    borderRadius: 12,
     alignItems: 'center',
     justifyContent: 'center',
-    marginRight: 12,
+    marginRight: 10,
+    flexShrink: 0,
   },
   itemContent: {
     flex: 1,
+    marginRight: 6,
   },
   itemTitle: {
-    fontSize: 14,
+    fontSize: 13.5,
     fontWeight: '600',
-    color: '#FFFFFF',
     marginBottom: 2,
   },
   itemSubtitle: {
-    fontSize: 12,
-    color: '#94A3B8',
+    fontSize: 11.5,
+    lineHeight: 15,
   },
-  actionPill: {
-    paddingVertical: 5,
-    paddingHorizontal: 12,
-    borderRadius: 14,
-  },
-  actionPillAction: {
-    backgroundColor: '#1DB95425',
-    borderWidth: 1,
-    borderColor: '#1DB954',
-  },
-  actionPillRunning: {
-    backgroundColor: '#1E232B',
-    borderWidth: 1,
-    borderColor: '#374151',
-  },
-  actionPillWarning: {
-    backgroundColor: '#F59E0B25',
-    borderWidth: 1,
-    borderColor: '#F59E0B',
-  },
-  actionPillOutline: {
-    backgroundColor: '#1E232B',
-    borderWidth: 1,
-    borderColor: '#4B5563',
-  },
-  actionPillText: {
-    fontSize: 11,
-    fontWeight: '700',
-  },
-  actionPillTextAction: {
-    color: '#1ED760',
-  },
-  actionPillTextRunning: {
-    color: '#94A3B8',
-  },
-  actionPillTextWarning: {
-    color: '#FBBF24',
-  },
-  actionPillTextOutline: {
-    color: '#E2E8F0',
-  },
-  grantedBadge: {
+  rightAction: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 4,
+    gap: 3,
+    flexShrink: 0,
   },
-  grantedText: {
-    fontSize: 12,
+  actionLabel: {
+    fontSize: 12.5,
     fontWeight: '600',
-    color: '#1ED760',
   },
 });

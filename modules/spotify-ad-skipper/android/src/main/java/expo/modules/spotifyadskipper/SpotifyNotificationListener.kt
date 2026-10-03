@@ -40,6 +40,7 @@ class SpotifyNotificationListener : NotificationListenerService() {
         super.onListenerConnected()
         instance = this
         isRunning = true
+        SpotifyAdSkipController.loadPreferences(applicationContext)
         Log.i(TAG, "SpotifyNotificationListener connected and listening")
     }
 

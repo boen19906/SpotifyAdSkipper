@@ -30,6 +30,7 @@ class SpotifyAdSkipForegroundService : Service() {
 
     override fun onCreate() {
         super.onCreate()
+        SpotifyAdSkipController.loadPreferences(this)
         createNotificationChannel()
     }
 

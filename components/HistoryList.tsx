@@ -2,77 +2,132 @@ import React from 'react';
 import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { SkipRecord } from '../storage/historyStorage';
+import { ThemeColors } from '../theme';
 
 interface HistoryListProps {
+  theme: ThemeColors;
   history: SkipRecord[];
   onClearHistory: () => void;
 }
 
+function formatTimeAgo(timestamp: number) {
+  const elapsed = Date.now() - timestamp;
+  const seconds = Math.floor(elapsed / 1000);
+  if (seconds < 60) return 'Just now';
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return `${minutes}m ago`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours}h ago`;
+  return new Date(timestamp).toLocaleDateString();
+}
+
 export const HistoryList: React.FC<HistoryListProps> = ({
+  theme,
   history,
   onClearHistory,
 }) => {
-  const formatTimeAgo = (timestamp: number) => {
-    // eslint-disable-next-line react-hooks/purity
-    const elapsed = Date.now() - timestamp;
-    const seconds = Math.floor(elapsed / 1000);
-    if (seconds < 60) return 'Just now';
-    const minutes = Math.floor(seconds / 60);
-    if (minutes < 60) return `${minutes}m ago`;
-    const hours = Math.floor(minutes / 60);
-    if (hours < 24) return `${hours}h ago`;
-    return new Date(timestamp).toLocaleDateString();
-  };
 
   return (
     <View style={styles.container}>
+      {/* Header Row (Like "All sessions    6 sessions") */}
       <View style={styles.headerRow}>
-        <Text style={styles.sectionTitle}>ACTIVITY LOG ({history.length})</Text>
-        {history.length > 0 && (
-          <TouchableOpacity onPress={onClearHistory} activeOpacity={0.6}>
-            <Text style={styles.clearText}>Clear</Text>
-          </TouchableOpacity>
-        )}
+        <Text style={[styles.sectionTitle, { color: theme.textPrimary }]}>
+          All skips
+        </Text>
+        <View style={styles.metaRow}>
+          <Text style={[styles.sectionMeta, { color: theme.textSecondary }]}>
+            {history.length} {history.length === 1 ? 'record' : 'records'}
+          </Text>
+          {history.length > 0 && (
+            <TouchableOpacity
+              onPress={onClearHistory}
+              activeOpacity={0.6}
+              style={styles.clearBtn}
+            >
+              <Text style={[styles.clearText, { color: theme.danger }]}>Clear</Text>
+            </TouchableOpacity>
+          )}
+        </View>
       </View>
 
       {history.length === 0 ? (
-        <View style={styles.emptyCard}>
-          <Ionicons name="musical-notes-outline" size={24} color="#64748B" />
-          <Text style={styles.emptyTitle}>No ads skipped yet</Text>
-          <Text style={styles.emptySubtitle}>
-            When Spotify plays an ad, the loophole will automatically close & restart Spotify to resume your music.
+        <View
+          style={[
+            styles.emptyCard,
+            { backgroundColor: theme.surface, borderColor: theme.border },
+          ]}
+        >
+          <View
+            style={[styles.emptyIconCircle, { backgroundColor: theme.surfaceSubtle }]}
+          >
+            <Ionicons name="musical-notes-outline" size={24} color={theme.textMuted} />
+          </View>
+          <Text style={[styles.emptyTitle, { color: theme.textPrimary }]}>
+            No ads skipped yet
+          </Text>
+          <Text style={[styles.emptySubtitle, { color: theme.textSecondary }]}>
+            When Spotify plays an advertisement, the loophole will automatically close & relaunch it instantly to resume your queue.
           </Text>
         </View>
       ) : (
-        <View style={styles.listCard}>
+        <View
+          style={[
+            styles.listCard,
+            { backgroundColor: theme.surface, borderColor: theme.border },
+          ]}
+        >
           {history.slice(0, 10).map((item, idx) => (
             <View
               key={item.id}
               style={[
                 styles.itemRow,
+                { borderBottomColor: theme.borderSubtle },
                 idx === history.length - 1 || idx === 9 ? styles.itemRowLast : null,
               ]}
             >
-              <View style={styles.itemIconCircle}>
+              {/* Squircle Thumbnail (styled like reference session icon) */}
+              <View
+                style={[
+                  styles.itemSquircle,
+                  {
+                    backgroundColor:
+                      item.source === 'test' ? theme.warningSubtle : theme.accentSubtle,
+                  },
+                ]}
+              >
                 <Ionicons
-                  name={item.source === 'test' ? 'flask' : 'play-skip-forward'}
-                  size={14}
-                  color="#1ED760"
+                  name={item.source === 'test' ? 'flask-outline' : 'play-skip-forward'}
+                  size={18}
+                  color={item.source === 'test' ? theme.warning : theme.accent}
                 />
               </View>
 
               <View style={styles.itemDetails}>
-                <Text style={styles.itemTitle} numberOfLines={1}>
+                <Text
+                  style={[styles.itemTitle, { color: theme.textPrimary }]}
+                  numberOfLines={1}
+                >
                   {item.title}
                 </Text>
-                <Text style={styles.itemMeta}>
-                  Saved ~{item.durationSavedSeconds}s • {formatTimeAgo(item.timestamp)}
-                  {item.source === 'test' ? ' • Simulation' : ''}
+                <Text
+                  style={[styles.itemMeta, { color: theme.textSecondary }]}
+                  numberOfLines={1}
+                >
+                  {formatTimeAgo(item.timestamp)}
+                  {item.source === 'test' ? ' • Simulated' : ' • Bypassed'}
                 </Text>
               </View>
 
-              <View style={styles.statusPill}>
-                <Text style={styles.statusPillText}>SKIPPED</Text>
+              {/* Right metadata like "10 min >" */}
+              <View style={styles.rightInfo}>
+                <Text style={[styles.durationText, { color: theme.textSecondary }]}>
+                  ~{item.durationSavedSeconds}s
+                </Text>
+                <Ionicons
+                  name="chevron-forward"
+                  size={14}
+                  color={theme.textMuted}
+                />
               </View>
             </View>
           ))}
@@ -85,8 +140,7 @@ export const HistoryList: React.FC<HistoryListProps> = ({
 const styles = StyleSheet.create({
   container: {
     marginHorizontal: 20,
-    marginTop: 18,
-    marginBottom: 40,
+    marginTop: 22,
   },
   headerRow: {
     flexDirection: 'row',
@@ -95,43 +149,55 @@ const styles = StyleSheet.create({
     marginBottom: 10,
   },
   sectionTitle: {
-    fontSize: 11,
+    fontSize: 16,
     fontWeight: '700',
-    color: '#64748B',
-    letterSpacing: 0.8,
+    letterSpacing: -0.2,
+  },
+  metaRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  sectionMeta: {
+    fontSize: 13,
+    fontWeight: '500',
+  },
+  clearBtn: {
+    paddingVertical: 2,
+    paddingHorizontal: 6,
   },
   clearText: {
     fontSize: 12,
-    color: '#94A3B8',
     fontWeight: '600',
   },
   emptyCard: {
-    backgroundColor: '#161A22',
-    borderRadius: 14,
+    borderRadius: 20,
     padding: 24,
     alignItems: 'center',
     borderWidth: 1,
-    borderColor: '#262D38',
+  },
+  emptyIconCircle: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 12,
   },
   emptyTitle: {
-    fontSize: 14,
+    fontSize: 15,
     fontWeight: '700',
-    color: '#E2E8F0',
-    marginTop: 10,
-    marginBottom: 4,
+    marginBottom: 6,
   },
   emptySubtitle: {
     fontSize: 12,
-    color: '#94A3B8',
     textAlign: 'center',
     lineHeight: 18,
-    maxWidth: 260,
+    maxWidth: 280,
   },
   listCard: {
-    backgroundColor: '#161A22',
-    borderRadius: 14,
+    borderRadius: 20,
     borderWidth: 1,
-    borderColor: '#262D38',
     overflow: 'hidden',
   },
   itemRow: {
@@ -140,46 +206,39 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
     paddingHorizontal: 14,
     borderBottomWidth: 1,
-    borderBottomColor: '#262D3840',
   },
   itemRowLast: {
     borderBottomWidth: 0,
   },
-  itemIconCircle: {
-    width: 28,
-    height: 28,
-    borderRadius: 14,
-    backgroundColor: '#132B1F',
+  itemSquircle: {
+    width: 44,
+    height: 44,
+    borderRadius: 13,
     alignItems: 'center',
     justifyContent: 'center',
-    marginRight: 10,
+    marginRight: 12,
+    flexShrink: 0,
   },
   itemDetails: {
     flex: 1,
     marginRight: 8,
   },
   itemTitle: {
-    fontSize: 13,
+    fontSize: 14,
     fontWeight: '600',
-    color: '#FFFFFF',
-    marginBottom: 2,
+    marginBottom: 3,
   },
   itemMeta: {
-    fontSize: 11,
-    color: '#94A3B8',
+    fontSize: 12,
   },
-  statusPill: {
-    backgroundColor: '#132B1F',
-    borderWidth: 1,
-    borderColor: '#1DB95460',
-    paddingVertical: 2,
-    paddingHorizontal: 6,
-    borderRadius: 6,
+  rightInfo: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    flexShrink: 0,
   },
-  statusPillText: {
-    fontSize: 9,
-    fontWeight: '800',
-    color: '#1ED760',
-    letterSpacing: 0.5,
+  durationText: {
+    fontSize: 12,
+    fontWeight: '600',
   },
 });

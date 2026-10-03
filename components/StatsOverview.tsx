@@ -1,8 +1,10 @@
 import React from 'react';
 import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { ThemeColors } from '../theme';
 
 interface StatsOverviewProps {
+  theme: ThemeColors;
   totalSkipped: number;
   totalSecondsSaved: number;
   onTestLoophole: () => void;
@@ -10,6 +12,7 @@ interface StatsOverviewProps {
 }
 
 export const StatsOverview: React.FC<StatsOverviewProps> = ({
+  theme,
   totalSkipped,
   totalSecondsSaved,
   onTestLoophole,
@@ -19,58 +22,128 @@ export const StatsOverview: React.FC<StatsOverviewProps> = ({
 
   return (
     <View style={styles.container}>
+      {/* Header */}
       <View style={styles.headerRow}>
-        <Text style={styles.sectionTitle}>LOOPHOLE STATS & TESTING</Text>
-        <TouchableOpacity
-          style={[styles.testBtn, isSkipping && styles.testBtnDisabled]}
-          onPress={onTestLoophole}
-          disabled={isSkipping}
-          activeOpacity={0.7}
+        <Text style={[styles.sectionTitle, { color: theme.textPrimary }]}>
+          Loophole stats
+        </Text>
+        <Text style={[styles.sectionMeta, { color: theme.textSecondary }]}>
+          Real-time
+        </Text>
+      </View>
+
+      {/* Grid of 2 clean, spacious cards */}
+      <View style={styles.gridRow}>
+        {/* Card 1: Ads Skipped */}
+        <View
+          style={[
+            styles.statCard,
+            { backgroundColor: theme.surface, borderColor: theme.border },
+          ]}
         >
-          <Ionicons
-            name="play-forward"
-            size={14}
-            color={isSkipping ? '#94A3B8' : '#1ED760'}
-          />
-          <Text
+          <View
             style={[
-              styles.testBtnText,
-              isSkipping && styles.testBtnTextDisabled,
+              styles.iconCircle,
+              { backgroundColor: theme.accentSubtle },
             ]}
           >
-            {isSkipping ? 'Testing...' : 'Test Loophole'}
+            <Ionicons name="flash-outline" size={17} color={theme.accent} />
+          </View>
+          <Text
+            style={[styles.statValue, { color: theme.textPrimary }]}
+            numberOfLines={1}
+            adjustsFontSizeToFit
+          >
+            {totalSkipped}
           </Text>
-        </TouchableOpacity>
+          <Text style={[styles.statLabel, { color: theme.textSecondary }]}>
+            Ads Bypassed
+          </Text>
+        </View>
+
+        {/* Card 2: Time Saved */}
+        <View
+          style={[
+            styles.statCard,
+            { backgroundColor: theme.surface, borderColor: theme.border },
+          ]}
+        >
+          <View
+            style={[
+              styles.iconCircle,
+              { backgroundColor: '#E0F2FE' },
+            ]}
+          >
+            <Ionicons name="time-outline" size={17} color="#0284C7" />
+          </View>
+          <Text
+            style={[styles.statValue, { color: theme.textPrimary }]}
+            numberOfLines={1}
+            adjustsFontSizeToFit
+          >
+            {minutesSaved}m
+          </Text>
+          <Text style={[styles.statLabel, { color: theme.textSecondary }]}>
+            Time Saved
+          </Text>
+        </View>
       </View>
 
-      <View style={styles.gridRow}>
-        {/* Metric 1 */}
-        <View style={styles.statCard}>
-          <View style={styles.statIconBadge}>
-            <Ionicons name="flash-outline" size={16} color="#1ED760" />
-          </View>
-          <Text style={styles.statValue}>{totalSkipped}</Text>
-          <Text style={styles.statLabel}>Ads Skipped</Text>
+      {/* Test Loophole Action Bar */}
+      <TouchableOpacity
+        style={[
+          styles.testBanner,
+          {
+            backgroundColor: theme.surface,
+            borderColor: theme.border,
+            opacity: isSkipping ? 0.6 : 1,
+          },
+        ]}
+        onPress={onTestLoophole}
+        disabled={isSkipping}
+        activeOpacity={0.75}
+      >
+        <View
+          style={[
+            styles.testIconSquircle,
+            { backgroundColor: isSkipping ? theme.warningSubtle : theme.accentSubtle },
+          ]}
+        >
+          <Ionicons
+            name={isSkipping ? 'sync-outline' : 'play-forward-outline'}
+            size={18}
+            color={isSkipping ? theme.warning : theme.accent}
+          />
         </View>
 
-        {/* Metric 2 */}
-        <View style={styles.statCard}>
-          <View style={styles.statIconBadge}>
-            <Ionicons name="time-outline" size={16} color="#38BDF8" />
-          </View>
-          <Text style={styles.statValue}>{minutesSaved}m</Text>
-          <Text style={styles.statLabel}>Time Saved</Text>
+        <View style={styles.testInfoCol}>
+          <Text style={[styles.testTitle, { color: theme.textPrimary }]}>
+            {isSkipping ? 'Executing Loophole Simulation...' : 'Simulate Loophole Skip'}
+          </Text>
+          <Text style={[styles.testSubtitle, { color: theme.textSecondary }]}>
+            Test mute, exit & relaunch transitions
+          </Text>
         </View>
 
-        {/* Metric 3 */}
-        <View style={styles.statCard}>
-          <View style={styles.statIconBadge}>
-            <Ionicons name="checkmark-done" size={16} color="#A855F7" />
-          </View>
-          <Text style={styles.statValue}>Instant</Text>
-          <Text style={styles.statLabel}>Skip Method</Text>
+        <View
+          style={[
+            styles.runPill,
+            {
+              backgroundColor: isSkipping ? theme.warningSubtle : theme.surfaceSubtle,
+              borderColor: isSkipping ? theme.warning : theme.border,
+            },
+          ]}
+        >
+          <Text
+            style={[
+              styles.runPillText,
+              { color: isSkipping ? theme.warning : theme.textPrimary },
+            ]}
+          >
+            {isSkipping ? 'Running' : 'Run Test'}
+          </Text>
         </View>
-      </View>
+      </TouchableOpacity>
     </View>
   );
 };
@@ -78,7 +151,7 @@ export const StatsOverview: React.FC<StatsOverviewProps> = ({
 const styles = StyleSheet.create({
   container: {
     marginHorizontal: 20,
-    marginTop: 16,
+    marginTop: 22,
   },
   headerRow: {
     flexDirection: 'row',
@@ -87,64 +160,79 @@ const styles = StyleSheet.create({
     marginBottom: 10,
   },
   sectionTitle: {
-    fontSize: 11,
+    fontSize: 16,
     fontWeight: '700',
-    color: '#64748B',
-    letterSpacing: 0.8,
+    letterSpacing: -0.2,
   },
-  testBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    backgroundColor: '#13281E',
-    borderWidth: 1,
-    borderColor: '#1DB95460',
-    paddingVertical: 5,
-    paddingHorizontal: 10,
-    borderRadius: 14,
-  },
-  testBtnDisabled: {
-    opacity: 0.5,
-  },
-  testBtnText: {
-    fontSize: 11,
-    fontWeight: '700',
-    color: '#1ED760',
-  },
-  testBtnTextDisabled: {
-    color: '#94A3B8',
+  sectionMeta: {
+    fontSize: 13,
+    fontWeight: '500',
   },
   gridRow: {
     flexDirection: 'row',
-    gap: 10,
+    gap: 12,
   },
   statCard: {
     flex: 1,
-    backgroundColor: '#161A22',
-    borderRadius: 14,
-    padding: 14,
+    borderRadius: 20,
+    padding: 16,
     borderWidth: 1,
-    borderColor: '#262D38',
-    alignItems: 'center',
   },
-  statIconBadge: {
-    width: 28,
-    height: 28,
-    borderRadius: 14,
-    backgroundColor: '#1E232B',
+  iconCircle: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
     alignItems: 'center',
     justifyContent: 'center',
-    marginBottom: 8,
+    marginBottom: 12,
   },
   statValue: {
-    fontSize: 20,
-    fontWeight: '800',
-    color: '#FFFFFF',
+    fontSize: 26,
+    fontWeight: '700',
+    letterSpacing: -0.5,
     marginBottom: 2,
   },
   statLabel: {
-    fontSize: 11,
-    color: '#94A3B8',
+    fontSize: 12,
     fontWeight: '500',
+  },
+  testBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderRadius: 18,
+    borderWidth: 1,
+    padding: 12,
+    marginTop: 12,
+    gap: 12,
+  },
+  testIconSquircle: {
+    width: 40,
+    height: 40,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexShrink: 0,
+  },
+  testInfoCol: {
+    flex: 1,
+  },
+  testTitle: {
+    fontSize: 13,
+    fontWeight: '600',
+    marginBottom: 2,
+  },
+  testSubtitle: {
+    fontSize: 11,
+  },
+  runPill: {
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+    borderRadius: 16,
+    borderWidth: 1,
+    flexShrink: 0,
+  },
+  runPillText: {
+    fontSize: 11,
+    fontWeight: '700',
   },
 });

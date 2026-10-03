@@ -21,6 +21,8 @@ class SpotifyAdSkipperModule : Module() {
         Events("onAdDetected", "onAdSkipped", "onMetadataChanged")
 
         OnCreate {
+            SpotifyAdSkipController.loadPreferences(context)
+
             SpotifyAdSkipController.onAdDetectedListener = { title, artist ->
                 sendEvent("onAdDetected", mapOf(
                     "title" to title,
@@ -166,6 +168,7 @@ class SpotifyAdSkipperModule : Module() {
             SpotifyAdSkipController.autoMute = autoMute
             SpotifyAdSkipController.restartDelayMs = restartDelayMs.toLong()
             SpotifyAdSkipController.relaunchWaitMs = relaunchWaitMs.toLong()
+            SpotifyAdSkipController.savePreferences(context)
             true
         }
 
