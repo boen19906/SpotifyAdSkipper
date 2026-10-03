@@ -72,7 +72,7 @@ object SpotifyAdSkipController {
 
     var onAdDetectedListener: ((title: String, artist: String) -> Unit)? = null
     var onAdSkippedListener: ((title: String, durationSavedSeconds: Int, timestamp: Long) -> Unit)? = null
-    var onMetadataChangedListener: ((track: String, artist: String, album: String, isPlaying: Boolean, isAd: Boolean) -> Unit)? = null
+    var onMetadataChangedListener: ((track: String, artist: String, album: String, isPlaying: Boolean, isAd: Boolean, trackId: String, durationMs: Int, playbackPositionMs: Int) -> Unit)? = null
 
     fun updateCurrentTrack(track: String, artist: String, isAd: Boolean) {
         val cleanTrack = track.trim()

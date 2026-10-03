@@ -209,3 +209,49 @@ export function addMetadataChangedListener(
   }
   return { remove: () => {} };
 }
+
+export function getNativeListenedTracks(): any[] {
+  try {
+    return SpotifyAdSkipperModule?.getListenedTracks() ?? [];
+  } catch {
+    return [];
+  }
+}
+
+export function saveNativeListenedTrack(trackData: any): boolean {
+  try {
+    return SpotifyAdSkipperModule?.saveListenedTrack(trackData) ?? false;
+  } catch {
+    return false;
+  }
+}
+
+export function removeNativeListenedTrack(id: string): boolean {
+  try {
+    return SpotifyAdSkipperModule?.removeListenedTrack(id) ?? false;
+  } catch {
+    return false;
+  }
+}
+
+export function clearNativeListenedTracks(): boolean {
+  try {
+    return SpotifyAdSkipperModule?.clearListenedTracks() ?? false;
+  } catch {
+    return false;
+  }
+}
+
+export function addTrackCommittedListener(
+  listener: (event: any) => void
+): EventSubscription {
+  try {
+    if (SpotifyAdSkipperModule && typeof SpotifyAdSkipperModule.addListener === 'function') {
+      return SpotifyAdSkipperModule.addListener('onTrackCommitted', listener);
+    }
+  } catch (e) {
+    console.warn('Could not attach addTrackCommittedListener', e);
+  }
+  return { remove: () => {} };
+}
+

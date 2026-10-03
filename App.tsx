@@ -16,9 +16,11 @@ import { CategoryPills, FilterCategory } from './components/CategoryPills';
 import { ServiceStatusList } from './components/ServiceStatusList';
 import { StatsOverview } from './components/StatsOverview';
 import { HistoryList } from './components/HistoryList';
+import { ListenedLibrary } from './components/ListenedLibrary';
 import { BottomNav, BottomNavTab } from './components/BottomNav';
 import { SetupGuideModal } from './components/SetupGuideModal';
 import { SettingsModal } from './components/SettingsModal';
+import { useListenedTracker } from './hooks/useListenedTracker';
 
 import { lightTheme, darkTheme } from './theme';
 
@@ -99,6 +101,15 @@ export default function App() {
   });
   const [guideVisible, setGuideVisible] = useState(false);
   const [settingsVisible, setSettingsVisible] = useState(false);
+
+  // Tracked songs library hook
+  const {
+    listenedTracks,
+    stats: listenedStats,
+    activePlayback,
+    deleteTrack: handleDeleteListenedTrack,
+    clearAll: handleClearListenedTracks,
+  } = useListenedTracker();
 
   // Refresh all Android system permission & service states
   const refreshSystemStatus = useCallback(() => {
@@ -383,19 +394,23 @@ export default function App() {
   };
 
   // Determine what components to show based on selected category / active tab
-  const showHero = activeTab === 'skipper' || selectedCategory === 'all';
+  const isLibraryTab = activeTab === 'library';
+  const showHero = !isLibraryTab && (activeTab === 'skipper' || selectedCategory === 'all');
   const showReadiness =
-    activeTab === 'readiness' ||
-    selectedCategory === 'all' ||
-    selectedCategory === 'readiness';
+    !isLibraryTab &&
+    (activeTab === 'readiness' ||
+      selectedCategory === 'all' ||
+      selectedCategory === 'readiness');
   const showStats =
-    activeTab === 'activity' ||
-    selectedCategory === 'all' ||
-    selectedCategory === 'stats';
+    !isLibraryTab &&
+    (activeTab === 'activity' ||
+      selectedCategory === 'all' ||
+      selectedCategory === 'stats');
   const showHistory =
-    activeTab === 'activity' ||
-    selectedCategory === 'all' ||
-    selectedCategory === 'activity';
+    !isLibraryTab &&
+    (activeTab === 'activity' ||
+      selectedCategory === 'all' ||
+      selectedCategory === 'activity');
 
   return (
     <View style={[styles.mainWrapper, { backgroundColor: theme.background }]}>
@@ -414,73 +429,86 @@ export default function App() {
         onOpenSettings={() => setSettingsVisible(true)}
       />
 
-      {/* Main Scroll Content with safe bottom padding for Android navigation */}
-      <ScrollView
-        style={styles.scrollArea}
-        contentContainerStyle={styles.scrollContent}
-        showsVerticalScrollIndicator={false}
-      >
-        {/* Hero Card inspired by the reference "Unwind" card */}
-        {showHero && (
-          <HeroCard
+      {/* Main Content Area */}
+      {isLibraryTab ? (
+        <View style={styles.scrollArea}>
+          <ListenedLibrary
             theme={theme}
-            isEnabled={isEnabled}
-            onTogglePower={handleTogglePower}
-            onOpenSpotify={handleOpenSpotify}
-            isSpotifyInstalled={spotifyInstalled}
-            track={currentTrack}
-            artist={currentArtist}
-            album={currentAlbum}
-            isPlaying={isPlaying}
-            isAd={isAd}
-            isSkippingInProgress={isSkipping}
+            tracks={listenedTracks}
+            stats={listenedStats}
+            activePlayback={activePlayback}
+            onDeleteTrack={handleDeleteListenedTrack}
+            onClearAll={handleClearListenedTracks}
           />
-        )}
+        </View>
+      ) : (
+        <ScrollView
+          style={styles.scrollArea}
+          contentContainerStyle={styles.scrollContent}
+          showsVerticalScrollIndicator={false}
+        >
+          {/* Hero Card inspired by the reference "Unwind" card */}
+          {showHero && (
+            <HeroCard
+              theme={theme}
+              isEnabled={isEnabled}
+              onTogglePower={handleTogglePower}
+              onOpenSpotify={handleOpenSpotify}
+              isSpotifyInstalled={spotifyInstalled}
+              track={currentTrack}
+              artist={currentArtist}
+              album={currentAlbum}
+              isPlaying={isPlaying}
+              isAd={isAd}
+              isSkippingInProgress={isSkipping}
+            />
+          )}
 
-        {/* Section Filter Pills inspired by "Choose an intent" */}
-        <CategoryPills
-          theme={theme}
-          isDark={isDark}
-          selectedCategory={selectedCategory}
-          onSelectCategory={handleSelectCategory}
-        />
-
-        {/* System Readiness Checklist */}
-        {showReadiness && (
-          <ServiceStatusList
+          {/* Section Filter Pills inspired by "Choose an intent" */}
+          <CategoryPills
             theme={theme}
-            isServiceRunning={serviceRunning}
-            isNotificationGranted={notificationGranted}
-            isAccessibilityGranted={accessibilityGranted}
-            isBatteryOptimized={batteryOptimized}
-            onToggleService={handleToggleService}
-            onRequestNotificationAccess={openNotificationAccessSettings}
-            onRequestAccessibility={openAccessibilitySettings}
-            onRequestBatteryExemption={requestIgnoreBatteryOptimizations}
-            onOpenBroadcastGuide={() => setGuideVisible(true)}
+            isDark={isDark}
+            selectedCategory={selectedCategory}
+            onSelectCategory={handleSelectCategory}
           />
-        )}
 
-        {/* Stats & Loophole Testing */}
-        {showStats && (
-          <StatsOverview
-            theme={theme}
-            totalSkipped={totalSkipped}
-            totalSecondsSaved={totalSecondsSaved}
-            onTestLoophole={handleTestLoophole}
-            isSkipping={isSkipping}
-          />
-        )}
+          {/* System Readiness Checklist */}
+          {showReadiness && (
+            <ServiceStatusList
+              theme={theme}
+              isServiceRunning={serviceRunning}
+              isNotificationGranted={notificationGranted}
+              isAccessibilityGranted={accessibilityGranted}
+              isBatteryOptimized={batteryOptimized}
+              onToggleService={handleToggleService}
+              onRequestNotificationAccess={openNotificationAccessSettings}
+              onRequestAccessibility={openAccessibilitySettings}
+              onRequestBatteryExemption={requestIgnoreBatteryOptimizations}
+              onOpenBroadcastGuide={() => setGuideVisible(true)}
+            />
+          )}
 
-        {/* Activity History Feed */}
-        {showHistory && (
-          <HistoryList
-            theme={theme}
-            history={history}
-            onClearHistory={handleClearHistory}
-          />
-        )}
-      </ScrollView>
+          {/* Stats & Loophole Testing */}
+          {showStats && (
+            <StatsOverview
+              theme={theme}
+              totalSkipped={totalSkipped}
+              totalSecondsSaved={totalSecondsSaved}
+              onTestLoophole={handleTestLoophole}
+              isSkipping={isSkipping}
+            />
+          )}
+
+          {/* Activity History Feed */}
+          {showHistory && (
+            <HistoryList
+              theme={theme}
+              history={history}
+              onClearHistory={handleClearHistory}
+            />
+          )}
+        </ScrollView>
+      )}
 
       {/* Minimalist Bottom Navigation Bar (like "Library" and "Progress" in reference image) */}
       <BottomNav

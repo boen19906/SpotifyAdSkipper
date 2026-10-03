@@ -18,7 +18,7 @@ class SpotifyAdSkipperModule : Module() {
     override fun definition() = ModuleDefinition {
         Name("SpotifyAdSkipper")
 
-        Events("onAdDetected", "onAdSkipped", "onMetadataChanged")
+        Events("onAdDetected", "onAdSkipped", "onMetadataChanged", "onTrackCommitted")
 
         OnCreate {
             SpotifyAdSkipController.loadPreferences(context)
@@ -38,13 +38,26 @@ class SpotifyAdSkipperModule : Module() {
                 ))
             }
 
-            SpotifyAdSkipController.onMetadataChangedListener = { track, artist, album, isPlaying, isAd ->
+            SpotifyAdSkipController.onMetadataChangedListener = { track, artist, album, isPlaying, isAd, trackId, durationMs, playbackPositionMs ->
                 sendEvent("onMetadataChanged", mapOf(
                     "track" to track,
                     "artist" to artist,
                     "album" to album,
                     "isPlaying" to isPlaying,
-                    "isAd" to isAd
+                    "isAd" to isAd,
+                    "trackId" to trackId,
+                    "durationMs" to durationMs,
+                    "playbackPositionMs" to playbackPositionMs
+                ))
+            }
+
+            SpotifyTrackHistoryManager.onTrackCommittedListener = { title, artist, album, trackId, durationMs ->
+                sendEvent("onTrackCommitted", mapOf(
+                    "title" to title,
+                    "artist" to artist,
+                    "album" to album,
+                    "trackId" to trackId,
+                    "durationMs" to durationMs
                 ))
             }
         }
@@ -184,6 +197,22 @@ class SpotifyAdSkipperModule : Module() {
 
         Function("getSkipCount") {
             SpotifyAdSkipController.skipCount
+        }
+
+        Function("getListenedTracks") {
+            SpotifyTrackHistoryManager.getListenedTracks(context)
+        }
+
+        Function("saveListenedTrack") { trackData: Map<String, Any> ->
+            SpotifyTrackHistoryManager.saveTrack(context, trackData)
+        }
+
+        Function("removeListenedTrack") { id: String ->
+            SpotifyTrackHistoryManager.removeListenedTrack(context, id)
+        }
+
+        Function("clearListenedTracks") {
+            SpotifyTrackHistoryManager.clearListenedTracks(context)
         }
     }
 }

@@ -4,12 +4,14 @@ import {
   AdSkippedPayload,
   MetadataChangedPayload,
   SkipperConfig,
+  TrackCommittedPayload,
 } from './SpotifyAdSkipper.types';
 
 export type SpotifyAdSkipperEvents = {
   onAdDetected: (event: AdDetectedPayload) => void;
   onAdSkipped: (event: AdSkippedPayload) => void;
   onMetadataChanged: (event: MetadataChangedPayload) => void;
+  onTrackCommitted: (event: TrackCommittedPayload) => void;
 };
 
 declare class SpotifyAdSkipperNativeModule extends NativeModule<SpotifyAdSkipperEvents> {
@@ -29,6 +31,10 @@ declare class SpotifyAdSkipperNativeModule extends NativeModule<SpotifyAdSkipper
   setConfig(enabled: boolean, autoMute: boolean, restartDelayMs: number, relaunchWaitMs: number): boolean;
   getConfig(): SkipperConfig;
   getSkipCount(): number;
+  getListenedTracks(): any[];
+  saveListenedTrack(trackData: Record<string, any>): boolean;
+  removeListenedTrack(id: string): boolean;
+  clearListenedTracks(): boolean;
 }
 
 export default requireNativeModule<SpotifyAdSkipperNativeModule>('SpotifyAdSkipper');

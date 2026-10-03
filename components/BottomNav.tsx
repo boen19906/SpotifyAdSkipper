@@ -4,7 +4,7 @@ import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import { ThemeColors } from '../theme';
 
-export type BottomNavTab = 'skipper' | 'activity' | 'readiness';
+export type BottomNavTab = 'skipper' | 'library' | 'activity' | 'readiness';
 
 interface BottomNavProps {
   theme: ThemeColors;
@@ -35,6 +35,12 @@ export const BottomNav: React.FC<BottomNavProps> = ({
       label: 'Skipper',
       icon: 'radio-outline',
       iconActive: 'radio',
+    },
+    {
+      id: 'library',
+      label: 'Library',
+      icon: 'musical-notes-outline',
+      iconActive: 'musical-notes',
     },
     {
       id: 'activity',

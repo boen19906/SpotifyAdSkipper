@@ -25,12 +25,24 @@ class SpotifyBroadcastReceiver : BroadcastReceiver() {
         val track = intent.getStringExtra("track") ?: ""
         val length = intent.getIntExtra("length", 0)
         val isPlaying = intent.getBooleanExtra("playing", false)
+        val playbackPosition = intent.getIntExtra("playbackPosition", 0)
 
         val isAd = isAdvertisement(id, track, artist, length)
+        val appContext = context.applicationContext ?: context
 
         SpotifyAdSkipController.updateCurrentTrack(track, artist, isAd)
+        SpotifyTrackHistoryManager.handlePlaybackEvent(
+            appContext,
+            track,
+            artist,
+            album,
+            id,
+            length,
+            isPlaying,
+            isAd
+        )
 
-        Log.d(TAG, "Track Info -> id='$id', track='$track', artist='$artist', isPlaying=$isPlaying, isAd=$isAd")
+        Log.d(TAG, "Track Info -> id='$id', track='$track', artist='$artist', isPlaying=$isPlaying, isAd=$isAd, pos=$playbackPosition")
 
         Handler(Looper.getMainLooper()).post {
             SpotifyAdSkipController.onMetadataChangedListener?.invoke(
@@ -38,7 +50,10 @@ class SpotifyBroadcastReceiver : BroadcastReceiver() {
                 artist,
                 album,
                 isPlaying,
-                isAd
+                isAd,
+                id,
+                length,
+                playbackPosition
             )
         }
 

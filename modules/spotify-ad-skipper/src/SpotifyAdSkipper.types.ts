@@ -9,12 +9,23 @@ export interface AdSkippedPayload {
   timestamp: number;
 }
 
+export interface TrackCommittedPayload {
+  title: string;
+  artist: string;
+  album: string;
+  trackId?: string;
+  durationMs?: number;
+}
+
 export interface MetadataChangedPayload {
   track: string;
   artist: string;
   album: string;
   isPlaying: boolean;
   isAd: boolean;
+  trackId?: string;
+  durationMs?: number;
+  playbackPositionMs?: number;
 }
 
 export interface SkipperConfig {
