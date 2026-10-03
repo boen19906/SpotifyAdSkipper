@@ -27,7 +27,7 @@ object SpotifyAdSkipController {
     var autoMute: Boolean = true
     var restartDelayMs: Long = 800L
     var relaunchWaitMs: Long = 2500L
-    var adSettleDelayMs: Long = 2000L
+    var adSettleDelayMs: Long = 300L
     var skipCount: Int = 0
 
     fun loadPreferences(context: Context) {
@@ -58,6 +58,66 @@ object SpotifyAdSkipController {
         }
     }
 
+    fun muteAudioImmediately(context: Context) {
+        try {
+            if (!autoMute) return
+            val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as? AudioManager ?: return
+            val currentVol = audioManager.getStreamVolume(AudioManager.STREAM_MUSIC)
+            // Save the volume only if we haven't already saved it, and current volume is audible (> 0)
+            if (savedVolume <= 0 && currentVol > 0) {
+                savedVolume = currentVol
+                Log.d(TAG, "Captured playback volume before mute: $savedVolume")
+            }
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                audioManager.adjustStreamVolume(
+                    AudioManager.STREAM_MUSIC,
+                    AudioManager.ADJUST_MUTE,
+                    0
+                )
+            } else {
+                audioManager.setStreamVolume(AudioManager.STREAM_MUSIC, 0, 0)
+            }
+            Log.d(TAG, "Audio muted immediately upon ad detection")
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to mute audio immediately", e)
+        }
+    }
+
+    fun ensureAudioUnmuted(context: Context) {
+        try {
+            if (!autoMute) return
+            val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as? AudioManager ?: return
+            var unmutedAny = false
+
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                if (audioManager.isStreamMute(AudioManager.STREAM_MUSIC)) {
+                    audioManager.adjustStreamVolume(
+                        AudioManager.STREAM_MUSIC,
+                        AudioManager.ADJUST_UNMUTE,
+                        0
+                    )
+                    unmutedAny = true
+                    Log.i(TAG, "Safety: Unmuted music stream because normal song is active")
+                }
+            }
+
+            val current = audioManager.getStreamVolume(AudioManager.STREAM_MUSIC)
+            if (current == 0) {
+                val maxVol = audioManager.getStreamMaxVolume(AudioManager.STREAM_MUSIC)
+                val target = if (savedVolume > 0) savedVolume else (maxVol * 0.6).toInt().coerceAtLeast(1)
+                audioManager.setStreamVolume(AudioManager.STREAM_MUSIC, target, 0)
+                Log.i(TAG, "Safety: Restored volume to $target because normal song is active")
+                unmutedAny = true
+            }
+
+            if (unmutedAny) {
+                savedVolume = -1
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "Error in ensureAudioUnmuted", e)
+        }
+    }
+
     var isAutomatingForceStop: Boolean = false
     private val isSkipping = AtomicBoolean(false)
     private var lastSkipTimestamp: Long = 0L
@@ -74,7 +134,7 @@ object SpotifyAdSkipController {
     var onAdSkippedListener: ((title: String, durationSavedSeconds: Int, timestamp: Long) -> Unit)? = null
     var onMetadataChangedListener: ((track: String, artist: String, album: String, isPlaying: Boolean, isAd: Boolean, trackId: String, durationMs: Int, playbackPositionMs: Int) -> Unit)? = null
 
-    fun updateCurrentTrack(track: String, artist: String, isAd: Boolean) {
+    fun updateCurrentTrack(context: Context, track: String, artist: String, isAd: Boolean) {
         val cleanTrack = track.trim()
         val cleanArtist = artist.trim()
         if (!isAd && cleanTrack.isNotBlank() &&
@@ -83,6 +143,12 @@ object SpotifyAdSkipController {
             lastPlayedSongTitle = cleanTrack
             lastPlayedSongArtist = cleanArtist
             Log.d(TAG, "Updated current active track: '$cleanTrack' by '$cleanArtist'")
+
+            // If a real song is now playing and skipper is not actively running a skip sequence,
+            // verify audio is not left muted!
+            if (!isSkipping.get()) {
+                ensureAudioUnmuted(context)
+            }
         }
     }
 
@@ -92,11 +158,20 @@ object SpotifyAdSkipController {
             return
         }
 
+        // SILENCE AD AUDIO IMMEDIATELY - ZERO DELAY
+        muteAudioImmediately(context)
+
         val now = SystemClock.elapsedRealtime()
-        // Cooldown buffer: 5 seconds to prevent double-skipping or flapping
-        if (now - lastSkipTimestamp < 5000L) {
-            Log.d(TAG, "Ad detected during cooldown period, ignoring: $trackTitle")
+        // Responsive 1.5s debounce buffer (allows back-to-back ads to be skipped)
+        if (now - lastSkipTimestamp < 1500L) {
+            Log.d(TAG, "Ad detected within 1.5s debounce period, ignoring duplicate event: $trackTitle")
             return
+        }
+
+        // If a previous skip was stuck for > 5 seconds, clear lock to guarantee we never miss an ad
+        if (isSkipping.get() && (now - lastSkipTimestamp > 5000L)) {
+            Log.w(TAG, "Skip flag held for >5s, resetting to ensure ad is skipped")
+            isSkipping.set(false)
         }
 
         if (!isSkipping.compareAndSet(false, true)) {
@@ -116,7 +191,7 @@ object SpotifyAdSkipController {
             }
         }
         songBeforeAd = lastPlayedSongTitle
-        Log.i(TAG, "Executing Spotify Ad Skip loophole for '$trackTitle' via $source. (Song before ad: '$songBeforeAd')")
+        Log.i(TAG, "Executing Spotify Ad Skip loophole IMMEDIATELY for '$trackTitle' via $source. (Song before ad: '$songBeforeAd')")
 
         Handler(Looper.getMainLooper()).post {
             onAdDetectedListener?.invoke(trackTitle, artist)
@@ -155,20 +230,8 @@ object SpotifyAdSkipController {
                 }
             }
 
-            // STEP 2: Mute audio IMMEDIATELY so zero ad audio is heard
-            if (autoMute && audioManager != null) {
-                savedVolume = audioManager.getStreamVolume(AudioManager.STREAM_MUSIC)
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-                    audioManager.adjustStreamVolume(
-                        AudioManager.STREAM_MUSIC,
-                        AudioManager.ADJUST_MUTE,
-                        0
-                    )
-                } else {
-                    audioManager.setStreamVolume(AudioManager.STREAM_MUSIC, 0, 0)
-                }
-                Log.d(TAG, "Audio muted immediately (saved volume: $savedVolume)")
-            }
+            // STEP 2: Ensure audio is muted immediately
+            muteAudioImmediately(context)
 
             // STEP 3: Wait adSettleDelayMs (2000ms) for Spotify to fully enter ad mode and commit the finished song to disk
             Log.i(TAG, "Muted ad audio. Waiting ${adSettleDelayMs}ms for Spotify player engine to commit previous track completion...")
@@ -304,8 +367,11 @@ object SpotifyAdSkipController {
     private fun finalizeResume(context: Context, audioManager: AudioManager?) {
         val handler = Handler(Looper.getMainLooper())
 
-        // STEP 7: Restore original volume
-        if (autoMute && audioManager != null && savedVolume >= 0) {
+        // STEP 7: Restore original volume safely
+        if (autoMute && audioManager != null) {
+            val maxVol = audioManager.getStreamMaxVolume(AudioManager.STREAM_MUSIC)
+            val restoreVol = if (savedVolume > 0) savedVolume else (maxVol * 0.6).toInt().coerceAtLeast(1)
+
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
                 audioManager.adjustStreamVolume(
                     AudioManager.STREAM_MUSIC,
@@ -313,8 +379,9 @@ object SpotifyAdSkipController {
                     0
                 )
             }
-            audioManager.setStreamVolume(AudioManager.STREAM_MUSIC, savedVolume, 0)
-            Log.d(TAG, "Audio unmuted to volume: $savedVolume")
+            audioManager.setStreamVolume(AudioManager.STREAM_MUSIC, restoreVol, 0)
+            Log.d(TAG, "Audio unmuted to volume: $restoreVol (previous saved: $savedVolume)")
+            savedVolume = -1
         }
 
         // STEP 8: If the screen was off before the skip, turn it back off immediately

@@ -36,6 +36,61 @@ class SpotifyNotificationListener : NotificationListenerService() {
             }
             return null
         }
+
+        fun isAdKeyword(str: String?): Boolean {
+            if (str.isNullOrBlank()) return false
+            val s = str.lowercase().trim()
+            return s == "advertisement" ||
+                   s.contains("advertisement") ||
+                   s == "ad" ||
+                   s.startsWith("ad •") ||
+                   s.startsWith("ad  •") ||
+                   s.endsWith("• ad") ||
+                   s.contains("• ad •") ||
+                   s.contains("spotify sponsor") ||
+                   s.contains("sponsored") ||
+                   s.contains("audio ad")
+        }
+    }
+
+    private var registeredController: MediaController? = null
+    private val mediaControllerCallback = object : MediaController.Callback() {
+        override fun onMetadataChanged(metadata: MediaMetadata?) {
+            super.onMetadataChanged(metadata)
+            if (metadata == null) return
+            val mTitle = metadata.getString(MediaMetadata.METADATA_KEY_TITLE) ?: ""
+            val mArtist = metadata.getString(MediaMetadata.METADATA_KEY_ARTIST) ?: ""
+            val mAlbum = metadata.getString(MediaMetadata.METADATA_KEY_ALBUM) ?: ""
+            if (isAdKeyword(mTitle) || isAdKeyword(mArtist) || isAdKeyword(mAlbum)) {
+                Log.i(TAG, "Ad detected via real-time MediaController Callback: '$mTitle' by '$mArtist'")
+                val appContext = applicationContext ?: this@SpotifyNotificationListener
+                SpotifyAdSkipController.handleAdDetected(
+                    appContext,
+                    if (mTitle.isNotBlank()) mTitle else "Spotify Advertisement",
+                    mArtist,
+                    "MediaControllerCallback"
+                )
+            }
+        }
+
+        override fun onPlaybackStateChanged(state: PlaybackState?) {
+            super.onPlaybackStateChanged(state)
+            registeredController?.metadata?.let { meta ->
+                val mTitle = meta.getString(MediaMetadata.METADATA_KEY_TITLE) ?: ""
+                val mArtist = meta.getString(MediaMetadata.METADATA_KEY_ARTIST) ?: ""
+                val mAlbum = meta.getString(MediaMetadata.METADATA_KEY_ALBUM) ?: ""
+                if (isAdKeyword(mTitle) || isAdKeyword(mArtist) || isAdKeyword(mAlbum)) {
+                    Log.i(TAG, "Ad detected via PlaybackStateChanged: '$mTitle' by '$mArtist'")
+                    val appContext = applicationContext ?: this@SpotifyNotificationListener
+                    SpotifyAdSkipController.handleAdDetected(
+                        appContext,
+                        if (mTitle.isNotBlank()) mTitle else "Spotify Advertisement",
+                        mArtist,
+                        "MediaControllerPlaybackState"
+                    )
+                }
+            }
+        }
     }
 
     override fun onListenerConnected() {
@@ -48,6 +103,10 @@ class SpotifyNotificationListener : NotificationListenerService() {
 
     override fun onListenerDisconnected() {
         super.onListenerDisconnected()
+        try {
+            registeredController?.unregisterCallback(mediaControllerCallback)
+        } catch (e: Exception) {}
+        registeredController = null
         instance = null
         isRunning = false
         Log.i(TAG, "SpotifyNotificationListener disconnected")
@@ -67,6 +126,8 @@ class SpotifyNotificationListener : NotificationListenerService() {
         val title = extras.getCharSequence(Notification.EXTRA_TITLE)?.toString()?.trim() ?: ""
         val text = extras.getCharSequence(Notification.EXTRA_TEXT)?.toString()?.trim() ?: ""
         val subText = extras.getCharSequence(Notification.EXTRA_SUB_TEXT)?.toString()?.trim() ?: ""
+        val bigText = extras.getCharSequence(Notification.EXTRA_BIG_TEXT)?.toString()?.trim() ?: ""
+        val ticker = notification.tickerText?.toString()?.trim() ?: ""
 
         var artist = text
         var album = subText
@@ -78,9 +139,25 @@ class SpotifyNotificationListener : NotificationListenerService() {
             }
         }
 
-        val isAd = isAdvertisementNotification(title, text)
-
         val controller = getSpotifyController(this)
+        if (controller != null && controller != registeredController) {
+            try {
+                registeredController?.unregisterCallback(mediaControllerCallback)
+            } catch (e: Exception) {}
+            registeredController = controller
+            try {
+                controller.registerCallback(mediaControllerCallback)
+            } catch (e: Exception) {
+                Log.e(TAG, "Error registering MediaController callback", e)
+            }
+        }
+
+        val metaTitle = controller?.metadata?.getString(MediaMetadata.METADATA_KEY_TITLE) ?: ""
+        val metaArtist = controller?.metadata?.getString(MediaMetadata.METADATA_KEY_ARTIST) ?: ""
+        val metaAlbum = controller?.metadata?.getString(MediaMetadata.METADATA_KEY_ALBUM) ?: ""
+
+        val isAd = isAdvertisementNotification(title, text, subText, bigText, ticker, metaTitle, metaArtist, metaAlbum)
+
         val playbackState = controller?.playbackState
         var isPlaying = playbackState?.state == PlaybackState.STATE_PLAYING
         if (playbackState == null && notification.actions != null) {
@@ -96,10 +173,10 @@ class SpotifyNotificationListener : NotificationListenerService() {
         val playbackPosition = (playbackState?.position ?: 0L).toInt()
         val duration = (controller?.metadata?.getLong(MediaMetadata.METADATA_KEY_DURATION) ?: 0L).toInt()
 
-        Log.d(TAG, "Spotify Notification: title='$title', artist='$artist', album='$album', isPlaying=$isPlaying, pos=$playbackPosition, dur=$duration")
+        Log.d(TAG, "Spotify Notification: title='$title', artist='$artist', album='$album', isPlaying=$isPlaying, isAd=$isAd, pos=$playbackPosition, dur=$duration")
 
         val appContext = applicationContext ?: this
-        SpotifyAdSkipController.updateCurrentTrack(title, artist, isAd)
+        SpotifyAdSkipController.updateCurrentTrack(appContext, title, artist, isAd)
         SpotifyTrackHistoryManager.handlePlaybackEvent(
             appContext,
             title,
@@ -126,42 +203,49 @@ class SpotifyNotificationListener : NotificationListenerService() {
             }
         }
 
+        // TRIGGER SKIP IMMEDIATELY NO MATTER WHAT IF AN AD IS PLAYING OR VISIBLE
         if (isAd) {
-            Log.i(TAG, "Ad detected via NotificationListener: '$title' - '$text'")
+            val adTitle = if (title.isNotBlank() && !title.equals("Spotify", ignoreCase = true)) {
+                title
+            } else if (metaTitle.isNotBlank() && !metaTitle.equals("Spotify", ignoreCase = true)) {
+                metaTitle
+            } else {
+                "Spotify Advertisement"
+            }
+            Log.i(TAG, "Ad detected via NotificationListener: '$adTitle' ('$text') - TRIGGERING IMMEDIATE SKIP")
             SpotifyAdSkipController.handleAdDetected(
-                this,
-                if (title.isNotBlank()) title else "Spotify Advertisement",
-                text,
+                appContext,
+                adTitle,
+                artist,
                 "NotificationListener"
             )
         }
     }
 
-    private fun isAdvertisementNotification(title: String, text: String): Boolean {
-        val lowerTitle = title.lowercase()
-        val lowerText = text.lowercase()
-
-        // Explicit advertisement title patterns
-        if (lowerTitle == "advertisement" || 
-            lowerTitle.startsWith("advertisement") || 
-            lowerTitle.contains("advertisement •") || 
-            lowerTitle.contains("ad •") || 
-            lowerTitle.contains("ad  •")) {
+    private fun isAdvertisementNotification(
+        title: String,
+        text: String,
+        subText: String,
+        bigText: String,
+        ticker: String,
+        metaTitle: String,
+        metaArtist: String,
+        metaAlbum: String
+    ): Boolean {
+        if (isAdKeyword(title) || isAdKeyword(text) || isAdKeyword(subText) ||
+            isAdKeyword(bigText) || isAdKeyword(ticker) || isAdKeyword(metaTitle) ||
+            isAdKeyword(metaArtist) || isAdKeyword(metaAlbum)) {
             return true
         }
 
-        // Spotify branded ads (must specifically say advertisement or sponsor, not just general words)
-        if (lowerTitle == "spotify" && (
-            lowerText.startsWith("advertisement") || 
-            lowerText.contains("advertisement •") || 
-            lowerText.contains("spotify sponsor") ||
-            lowerText == "ad" ||
-            lowerText.startsWith("ad ")
-        )) {
+        val lowerTitle = title.lowercase().trim()
+        val lowerText = text.lowercase().trim()
+
+        if (lowerTitle == "spotify" && (lowerText.contains("ad") || isAdKeyword(lowerText) || lowerText == "spotify" || lowerText.isBlank())) {
             return true
         }
 
-        if (lowerText.startsWith("advertisement •") || lowerText.contains("advertisement •") || lowerText.contains("spotify sponsor")) {
+        if (lowerText == "spotify" && (lowerTitle.contains("ad") || isAdKeyword(lowerTitle))) {
             return true
         }
 
