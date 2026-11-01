@@ -272,9 +272,13 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
 
               {/* Status Badge */}
               <View style={[styles.statusBadge, { backgroundColor: theme.accentSubtle }]}>
-                <Ionicons name="checkmark-circle" size={14} color={theme.accent} />
+                <Ionicons
+                  name={customKey.trim() ? 'checkmark-circle' : 'alert-circle'}
+                  size={14}
+                  color={theme.accent}
+                />
                 <Text style={[styles.statusBadgeText, { color: theme.accentText }]}>
-                  {customKey.trim() ? 'Using Custom Last.fm Key' : 'Built-in Last.fm Key (Active)'}
+                  {customKey.trim() ? 'Using Custom Last.fm Key' : 'No Key Set — Using iTunes Fallback'}
                 </Text>
               </View>
 
@@ -291,7 +295,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                     color: theme.textPrimary,
                   },
                 ]}
-                placeholder="Leave blank to use built-in key"
+                placeholder="Leave blank to use iTunes recommendations"
                 placeholderTextColor={theme.textMuted}
                 value={customKey}
                 onChangeText={setCustomKey}

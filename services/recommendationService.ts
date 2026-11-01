@@ -28,8 +28,6 @@ const STORAGE_KEY_CACHE = 'SP_RECOMMENDATIONS_CACHE_V2';
 const STORAGE_KEY_TIMESTAMP = 'SP_RECOMMENDATIONS_TIMESTAMP_V2';
 const STORAGE_KEY_API_KEY = 'SP_LASTFM_CUSTOM_API_KEY_V1';
 
-// User's personal Last.fm API key
-const DEFAULT_LASTFM_KEY = 'b4cd35cc4464cd37c06e91457d5e97c7';
 const CACHE_TTL_MS = 6 * 60 * 60 * 1000; // 6 hours
 
 // Curated seeds to ensure the discovery page is never empty even for fresh installs
@@ -359,19 +357,19 @@ export async function getRecommendations(
     }
   }
 
-  // Resolve API key
-  const customKey = await getCustomLastFmApiKey();
-  const apiKey = customKey || DEFAULT_LASTFM_KEY;
+  const apiKey = await getCustomLastFmApiKey();
 
   // Run queries in parallel
   const promises: Promise<RecommendationItem[]>[] = [];
 
-  for (const seed of seedTracks) {
-    promises.push(fetchLastFmSimilar(seed.title, seed.artist, apiKey, seed.reason, 10));
-  }
+  if (apiKey) {
+    for (const seed of seedTracks) {
+      promises.push(fetchLastFmSimilar(seed.title, seed.artist, apiKey, seed.reason, 10));
+    }
 
-  for (const seed of seedArtists) {
-    promises.push(fetchLastFmArtistTop(seed.artist, apiKey, seed.reason, 6));
+    for (const seed of seedArtists) {
+      promises.push(fetchLastFmArtistTop(seed.artist, apiKey, seed.reason, 6));
+    }
   }
 
   const results = await Promise.all(promises);
