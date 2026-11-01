@@ -17,10 +17,13 @@ import { ServiceStatusList } from './components/ServiceStatusList';
 import { StatsOverview } from './components/StatsOverview';
 import { HistoryList } from './components/HistoryList';
 import { ListenedLibrary } from './components/ListenedLibrary';
+import { DiscoverRecommendations } from './components/DiscoverRecommendations';
 import { BottomNav, BottomNavTab } from './components/BottomNav';
 import { SetupGuideModal } from './components/SetupGuideModal';
 import { SettingsModal } from './components/SettingsModal';
+import { LocalPlayerBar } from './components/LocalPlayerBar';
 import { useListenedTracker } from './hooks/useListenedTracker';
+import { useLocalAudioPlayer } from './hooks/useLocalAudioPlayer';
 
 import { lightTheme, darkTheme } from './theme';
 
@@ -107,9 +110,30 @@ export default function App() {
     listenedTracks,
     stats: listenedStats,
     activePlayback,
+    autoDownload,
+    toggleAutoDownload,
+    downloadSong,
+    musicDir,
     deleteTrack: handleDeleteListenedTrack,
     clearAll: handleClearListenedTracks,
   } = useListenedTracker();
+
+  // Local audio player for downloaded tracks with shuffle play support
+  const {
+    currentTrack: localCurrentTrack,
+    isPlaying: isLocalPlaying,
+    positionMs: localPositionMs,
+    durationMs: localDurationMs,
+    isShuffle: isLocalShuffle,
+    playTrack: handlePlayLocalTrack,
+    togglePlayPause: handleToggleLocalPlayPause,
+    seekTo: handleLocalSeekTo,
+    nextTrack: handleLocalNext,
+    previousTrack: handleLocalPrevious,
+    shufflePlay: handleLocalShufflePlay,
+    toggleShuffle: handleToggleLocalShuffle,
+    stop: handleStopLocalPlayer,
+  } = useLocalAudioPlayer();
 
   // Refresh all Android system permission & service states
   const refreshSystemStatus = useCallback(() => {
@@ -395,19 +419,21 @@ export default function App() {
 
   // Determine what components to show based on selected category / active tab
   const isLibraryTab = activeTab === 'library';
-  const showHero = !isLibraryTab && (activeTab === 'skipper' || selectedCategory === 'all');
+  const isDiscoverTab = activeTab === 'discover';
+  const isStandardTab = !isLibraryTab && !isDiscoverTab;
+  const showHero = isStandardTab && (activeTab === 'skipper' || selectedCategory === 'all');
   const showReadiness =
-    !isLibraryTab &&
+    isStandardTab &&
     (activeTab === 'readiness' ||
       selectedCategory === 'all' ||
       selectedCategory === 'readiness');
   const showStats =
-    !isLibraryTab &&
+    isStandardTab &&
     (activeTab === 'activity' ||
       selectedCategory === 'all' ||
       selectedCategory === 'stats');
   const showHistory =
-    !isLibraryTab &&
+    isStandardTab &&
     (activeTab === 'activity' ||
       selectedCategory === 'all' ||
       selectedCategory === 'activity');
@@ -437,8 +463,39 @@ export default function App() {
             tracks={listenedTracks}
             stats={listenedStats}
             activePlayback={activePlayback}
+            autoDownload={autoDownload}
+            onToggleAutoDownload={toggleAutoDownload}
+            onDownloadTrack={downloadSong}
+            musicDir={musicDir}
             onDeleteTrack={handleDeleteListenedTrack}
             onClearAll={handleClearListenedTracks}
+            activeLocalTrackId={localCurrentTrack?.id}
+            isLocalPlaying={isLocalPlaying}
+            onPlayLocalTrack={(track) => {
+              if (localCurrentTrack?.id === track.id) {
+                handleToggleLocalPlayPause();
+              } else {
+                handlePlayLocalTrack(track, listenedTracks);
+              }
+            }}
+            onShufflePlay={() => handleLocalShufflePlay(listenedTracks)}
+          />
+        </View>
+      ) : isDiscoverTab ? (
+        <View style={styles.scrollArea}>
+          <DiscoverRecommendations
+            theme={theme}
+            listenedHistory={listenedTracks}
+            onDownloadTrack={downloadSong}
+            onPlayLocalTrack={(track) => {
+              if (localCurrentTrack?.id === track.id) {
+                handleToggleLocalPlayPause();
+              } else {
+                handlePlayLocalTrack(track, listenedTracks);
+              }
+            }}
+            activeLocalTrackId={localCurrentTrack?.id}
+            isLocalPlaying={isLocalPlaying}
           />
         </View>
       ) : (
@@ -508,6 +565,24 @@ export default function App() {
             />
           )}
         </ScrollView>
+      )}
+
+      {/* Downloaded Music Player Bar */}
+      {localCurrentTrack && (
+        <LocalPlayerBar
+          theme={theme}
+          currentTrack={localCurrentTrack}
+          isPlaying={isLocalPlaying}
+          positionMs={localPositionMs}
+          durationMs={localDurationMs}
+          isShuffle={isLocalShuffle}
+          onTogglePlayPause={handleToggleLocalPlayPause}
+          onSeek={handleLocalSeekTo}
+          onNext={handleLocalNext}
+          onPrevious={handleLocalPrevious}
+          onToggleShuffle={handleToggleLocalShuffle}
+          onClose={handleStopLocalPlayer}
+        />
       )}
 
       {/* Minimalist Bottom Navigation Bar (like "Library" and "Progress" in reference image) */}

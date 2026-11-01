@@ -14,11 +14,20 @@ class SpotifyBroadcastReceiver : BroadcastReceiver() {
         const val ACTION_METADATA_CHANGED = "com.spotify.music.metadatachanged"
         const val ACTION_PLAYBACK_STATE_CHANGED = "com.spotify.music.playbackstatechanged"
         const val ACTION_QUEUE_CHANGED = "com.spotify.music.queuechanged"
+        const val ACTION_REDOWNLOAD_ALL = "expo.modules.spotifyadskipper.REDOWNLOAD_ALL"
     }
 
     override fun onReceive(context: Context, intent: Intent) {
         val action = intent.action ?: return
         Log.d(TAG, "Received broadcast action: $action")
+
+        val appContext = context.applicationContext ?: context
+
+        if (action == ACTION_REDOWNLOAD_ALL) {
+            Log.i(TAG, "Received REDOWNLOAD_ALL broadcast action")
+            SpotifyAudioDownloader.redownloadAll(appContext)
+            return
+        }
 
         var id = intent.getStringExtra("id") ?: ""
         var artist = intent.getStringExtra("artist") ?: ""
@@ -41,7 +50,6 @@ class SpotifyBroadcastReceiver : BroadcastReceiver() {
         }
 
         val isAd = isAdvertisement(id, track, artist, length)
-        val appContext = context.applicationContext ?: context
 
         SpotifyAdSkipController.updateCurrentTrack(appContext, track, artist, isAd)
         SpotifyTrackHistoryManager.handlePlaybackEvent(
@@ -84,33 +92,18 @@ class SpotifyBroadcastReceiver : BroadcastReceiver() {
             return true
         }
 
-        fun isAdWord(s: String): Boolean {
-            val lower = s.lowercase().trim()
-            if (lower.isEmpty()) return false
-            return lower == "advertisement" ||
-                   lower.contains("advertisement") ||
-                   lower == "ad" ||
-                   lower.startsWith("ad •") ||
-                   lower.startsWith("ad  •") ||
-                   lower.endsWith("• ad") ||
-                   lower.contains("• ad •") ||
-                   lower.contains("spotify sponsor") ||
-                   lower.contains("sponsored") ||
-                   lower.contains("audio ad")
-        }
-
-        if (isAdWord(track) || isAdWord(artist)) {
+        if (SpotifyNotificationListener.isAdKeyword(track) || SpotifyNotificationListener.isAdKeyword(artist)) {
             return true
         }
 
         val lowerTrack = track.lowercase().trim()
         val lowerArtist = artist.lowercase().trim()
 
-        if (lowerTrack == "spotify" && (lowerArtist.contains("ad") || isAdWord(lowerArtist) || lowerArtist == "spotify" || lowerArtist.isBlank())) {
+        if (lowerTrack == "spotify" && (lowerArtist.contains("ad") || SpotifyNotificationListener.isAdKeyword(lowerArtist) || lowerArtist == "spotify" || lowerArtist.isBlank())) {
             return true
         }
 
-        if (lowerArtist == "spotify" && (lowerTrack.contains("ad") || isAdWord(lowerTrack) || lowerTrack.contains("sponsor"))) {
+        if (lowerArtist == "spotify" && (lowerTrack.contains("ad") || SpotifyNotificationListener.isAdKeyword(lowerTrack) || lowerTrack.contains("sponsor"))) {
             return true
         }
 

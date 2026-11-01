@@ -35,3 +35,40 @@ export interface SkipperConfig {
   relaunchWaitMs: number;
   skipCount: number;
 }
+
+export interface DownloadStatusChangedPayload {
+  id: string;
+  trackId: string;
+  title: string;
+  artist: string;
+  status: 'idle' | 'queued' | 'downloading' | 'downloaded' | 'failed';
+  progress: number;
+  filePath: string;
+  error?: string;
+}
+
+export interface ListenedTrack {
+  id: string;
+  trackId?: string;
+  title: string;
+  artist: string;
+  album: string;
+  durationMs: number;
+  firstListenedAt: number;
+  lastListenedAt: number;
+  listenCount: number;
+  totalDurationListenedMs: number;
+  downloadStatus?: 'idle' | 'queued' | 'downloading' | 'downloaded' | 'failed';
+  localFilePath?: string;
+  progress?: number;
+}
+
+export interface LocalPlayerState {
+  isPlaying: boolean;
+  positionMs: number;
+  durationMs: number;
+  title: string;
+  artist: string;
+  filePath: string;
+}
+

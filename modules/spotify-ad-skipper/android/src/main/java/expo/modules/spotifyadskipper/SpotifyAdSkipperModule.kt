@@ -18,10 +18,48 @@ class SpotifyAdSkipperModule : Module() {
     override fun definition() = ModuleDefinition {
         Name("SpotifyAdSkipper")
 
-        Events("onAdDetected", "onAdSkipped", "onMetadataChanged", "onTrackCommitted")
+        Events(
+            "onAdDetected",
+            "onAdSkipped",
+            "onMetadataChanged",
+            "onTrackCommitted",
+            "onDownloadStatusChanged",
+            "onLocalPlayerStateChanged",
+            "onLocalPlayerCompleted"
+        )
 
         OnCreate {
             SpotifyAdSkipController.loadPreferences(context)
+            SpotifyAudioDownloader.init(context)
+            LocalMusicPlayer.init(context)
+
+            LocalMusicPlayer.onPlayerStateChanged = { isPlaying, pos, dur, title, artist, filePath ->
+                sendEvent("onLocalPlayerStateChanged", mapOf(
+                    "isPlaying" to isPlaying,
+                    "positionMs" to pos,
+                    "durationMs" to dur,
+                    "title" to title,
+                    "artist" to artist,
+                    "filePath" to filePath
+                ))
+            }
+
+            LocalMusicPlayer.onSongCompleted = {
+                sendEvent("onLocalPlayerCompleted", emptyMap<String, Any>())
+            }
+
+            SpotifyAudioDownloader.onDownloadStatusChanged = { id, trackId, title, artist, status, progress, filePath, error ->
+                sendEvent("onDownloadStatusChanged", mapOf(
+                    "id" to id,
+                    "trackId" to trackId,
+                    "title" to title,
+                    "artist" to artist,
+                    "status" to status,
+                    "progress" to progress.toDouble(),
+                    "filePath" to (filePath ?: ""),
+                    "error" to (error ?: "")
+                ))
+            }
 
             SpotifyAdSkipController.onAdDetectedListener = { title, artist ->
                 sendEvent("onAdDetected", mapOf(
@@ -213,6 +251,52 @@ class SpotifyAdSkipperModule : Module() {
 
         Function("clearListenedTracks") {
             SpotifyTrackHistoryManager.clearListenedTracks(context)
+        }
+
+        Function("isAutoDownloadEnabled") {
+            SpotifyAudioDownloader.autoDownloadEnabled
+        }
+
+        Function("setAutoDownloadEnabled") { enabled: Boolean ->
+            SpotifyAudioDownloader.setAutoDownload(context, enabled)
+            true
+        }
+
+        Function("downloadTrack") { title: String, artist: String, album: String, trackId: String, id: String?, durationMs: Int? ->
+            SpotifyAudioDownloader.enqueueDownload(context, title, artist, album, trackId, id, durationMs ?: 0)
+        }
+
+        Function("redownloadAllTracks") {
+            SpotifyAudioDownloader.redownloadAll(context)
+            true
+        }
+
+        Function("getMusicDownloadDirectory") {
+            SpotifyAudioDownloader.getMusicDirectory(context).absolutePath
+        }
+
+        Function("playLocalTrack") { filePath: String, title: String, artist: String ->
+            LocalMusicPlayer.play(filePath, title, artist)
+        }
+
+        Function("pauseLocalTrack") {
+            LocalMusicPlayer.pause()
+        }
+
+        Function("resumeLocalTrack") {
+            LocalMusicPlayer.resume()
+        }
+
+        Function("seekLocalTrack") { positionMs: Double ->
+            LocalMusicPlayer.seekTo(positionMs.toInt())
+        }
+
+        Function("stopLocalTrack") {
+            LocalMusicPlayer.stop()
+        }
+
+        Function("getLocalPlayerState") {
+            LocalMusicPlayer.getState()
         }
     }
 }

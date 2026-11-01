@@ -15,6 +15,7 @@ function withSpotifyAdSkip(config) {
       'android.permission.MODIFY_AUDIO_SETTINGS',
       'android.permission.WAKE_LOCK',
       'android.permission.SYSTEM_ALERT_WINDOW',
+      'android.permission.REORDER_TASKS',
     ];
 
     if (!androidManifest['uses-permission']) {
@@ -138,6 +139,7 @@ function withSpotifyAdSkip(config) {
               { $: { 'android:name': 'com.spotify.music.metadatachanged' } },
               { $: { 'android:name': 'com.spotify.music.playbackstatechanged' } },
               { $: { 'android:name': 'com.spotify.music.queuechanged' } },
+              { $: { 'android:name': 'expo.modules.spotifyadskipper.REDOWNLOAD_ALL' } },
             ],
           },
         ],

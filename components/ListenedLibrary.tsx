@@ -27,8 +27,16 @@ interface ListenedLibraryProps {
     elapsedSeconds: number;
     durationMs: number;
   } | null;
+  autoDownload: boolean;
+  onToggleAutoDownload: (enabled: boolean) => void;
+  onDownloadTrack: (track: ListenedTrack) => void;
+  musicDir?: string;
   onDeleteTrack: (id: string) => void;
   onClearAll: () => void;
+  activeLocalTrackId?: string;
+  isLocalPlaying?: boolean;
+  onPlayLocalTrack?: (track: ListenedTrack) => void;
+  onShufflePlay?: () => void;
 }
 
 function formatTimeAgo(timestamp: number): string {
@@ -58,10 +66,22 @@ export const ListenedLibrary: React.FC<ListenedLibraryProps> = ({
   tracks,
   stats,
   activePlayback,
+  autoDownload,
+  onToggleAutoDownload,
+  onDownloadTrack,
+  musicDir,
   onDeleteTrack,
   onClearAll,
+  activeLocalTrackId,
+  isLocalPlaying,
+  onPlayLocalTrack,
+  onShufflePlay,
 }) => {
   const [searchQuery, setSearchQuery] = useState('');
+
+  const downloadedTracks = useMemo(() => {
+    return tracks.filter((t) => t.downloadStatus === 'downloaded' && !!t.localFilePath);
+  }, [tracks]);
 
   const filteredTracks = useMemo(() => {
     if (!searchQuery.trim()) return tracks;
@@ -199,6 +219,81 @@ export const ListenedLibrary: React.FC<ListenedLibraryProps> = ({
         </View>
       </View>
 
+      {/* Auto-Download Feature Card */}
+      <View
+        style={[
+          styles.autoDownloadCard,
+          {
+            backgroundColor: theme.surface,
+            borderColor: autoDownload ? theme.accent : theme.border,
+          },
+        ]}
+      >
+        <View style={styles.autoDownloadInfo}>
+          <View style={styles.autoDownloadTitleRow}>
+            <Ionicons
+              name={autoDownload ? 'cloud-download' : 'cloud-offline-outline'}
+              size={18}
+              color={autoDownload ? theme.accent : theme.textMuted}
+            />
+            <Text style={[styles.autoDownloadTitle, { color: theme.textPrimary }]}>
+              Auto-Download Music (MP3)
+            </Text>
+          </View>
+          <Text style={[styles.autoDownloadSub, { color: theme.textSecondary }]}>
+            {autoDownload
+              ? 'Automatically saves 320kbps MP3s to your device as songs play'
+              : 'Auto-download is paused. Tap ⬇️ on any song to download'}
+          </Text>
+          {musicDir ? (
+            <Text style={[styles.autoDownloadPath, { color: theme.textMuted }]} numberOfLines={1}>
+              📁 {musicDir.replace('/storage/emulated/0/', '')}
+            </Text>
+          ) : null}
+        </View>
+
+        <TouchableOpacity
+          style={[
+            styles.togglePill,
+            {
+              backgroundColor: autoDownload ? theme.accent : theme.surfaceSubtle,
+            },
+          ]}
+          onPress={() => {
+            try {
+              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+            } catch {}
+            onToggleAutoDownload(!autoDownload);
+          }}
+          activeOpacity={0.8}
+        >
+          <Text
+            style={[
+              styles.togglePillText,
+              { color: autoDownload ? '#FFFFFF' : theme.textSecondary },
+            ]}
+          >
+            {autoDownload ? 'ON' : 'OFF'}
+          </Text>
+        </TouchableOpacity>
+      </View>
+
+      {/* Shuffle Play Action Button */}
+      {downloadedTracks.length > 0 && (
+        <View style={styles.actionHeaderRow}>
+          <TouchableOpacity
+            style={[styles.shuffleButton, { backgroundColor: theme.accent }]}
+            onPress={() => onShufflePlay?.()}
+            activeOpacity={0.85}
+          >
+            <Ionicons name="shuffle" size={18} color="#FFFFFF" />
+            <Text style={styles.shuffleButtonText}>
+              Shuffle Play ({downloadedTracks.length} Downloaded {downloadedTracks.length === 1 ? 'Track' : 'Tracks'})
+            </Text>
+          </TouchableOpacity>
+        </View>
+      )}
+
       {/* Real-time active song banner */}
       {renderActiveCard()}
 
@@ -265,70 +360,182 @@ export const ListenedLibrary: React.FC<ListenedLibraryProps> = ({
             </Text>
           </View>
         }
-        renderItem={({ item, index }) => (
-          <View
-            style={[
-              styles.trackItem,
-              {
-                backgroundColor: theme.surface,
-                borderColor: theme.borderSubtle,
-              },
-            ]}
-          >
-            {/* Index / Music Icon */}
-            <View style={[styles.trackIndexBox, { backgroundColor: theme.surfaceSubtle }]}>
-              <Text style={[styles.trackIndexText, { color: theme.textMuted }]}>
-                {index + 1}
-              </Text>
-            </View>
+        renderItem={({ item, index }) => {
+          const isDownloaded = item.downloadStatus === 'downloaded' && !!item.localFilePath;
+          const isCurrentLocal = activeLocalTrackId === item.id;
+          const isCurrentPlaying = isCurrentLocal && isLocalPlaying;
 
-            {/* Song Meta */}
-            <View style={styles.trackDetails}>
-              <Text style={[styles.trackTitle, { color: theme.textPrimary }]} numberOfLines={1}>
-                {item.title}
-              </Text>
-              <Text style={[styles.trackSub, { color: theme.textSecondary }]} numberOfLines={1}>
-                {item.artist} {item.album ? `• ${item.album}` : ''}
-              </Text>
-              <View style={styles.badgeRow}>
-                <View style={[styles.playCountBadge, { backgroundColor: theme.accentSubtle }]}>
-                  <Text style={[styles.playCountText, { color: theme.accentText }]}>
-                    {item.listenCount > 1 ? `🔥 ${item.listenCount} plays` : '1 play'}
-                  </Text>
-                </View>
-                {item.durationMs > 0 && (
-                  <Text style={[styles.metaText, { color: theme.textMuted }]}>
-                    {formatDuration(item.durationMs)}
+          return (
+            <TouchableOpacity
+              style={[
+                styles.trackItem,
+                {
+                  backgroundColor: isCurrentLocal ? theme.surfaceElevated : theme.surface,
+                  borderColor: isCurrentLocal ? theme.accent : theme.borderSubtle,
+                  borderWidth: isCurrentLocal ? 1.5 : 1,
+                },
+              ]}
+              onPress={() => {
+                if (isDownloaded) {
+                  onPlayLocalTrack?.(item);
+                } else {
+                  handlePlayInSpotify(item);
+                }
+              }}
+              activeOpacity={0.7}
+            >
+              {/* Index / Music Icon */}
+              <View
+                style={[
+                  styles.trackIndexBox,
+                  {
+                    backgroundColor: isCurrentPlaying ? theme.accentSubtle : theme.surfaceSubtle,
+                  },
+                ]}
+              >
+                {isCurrentPlaying ? (
+                  <Ionicons name="volume-high" size={16} color={theme.accent} />
+                ) : (
+                  <Text
+                    style={[
+                      styles.trackIndexText,
+                      { color: isCurrentLocal ? theme.accent : theme.textMuted },
+                    ]}
+                  >
+                    {index + 1}
                   </Text>
                 )}
-                <Text style={[styles.metaText, { color: theme.textMuted }]}>
-                  {formatTimeAgo(item.lastListenedAt)}
-                </Text>
               </View>
-            </View>
 
-            {/* Actions */}
-            <View style={styles.actionRow}>
-              <TouchableOpacity
-                style={[styles.playBtn, { backgroundColor: theme.accent }]}
-                onPress={() => handlePlayInSpotify(item)}
-                activeOpacity={0.7}
-                accessibilityLabel="Play in Spotify"
-              >
-                <Ionicons name="play" size={15} color="#FFFFFF" />
-              </TouchableOpacity>
+              {/* Song Meta */}
+              <View style={styles.trackDetails}>
+                <Text
+                  style={[
+                    styles.trackTitle,
+                    { color: isCurrentLocal ? theme.accent : theme.textPrimary },
+                  ]}
+                  numberOfLines={1}
+                >
+                  {item.title}
+                </Text>
+                <Text style={[styles.trackSub, { color: theme.textSecondary }]} numberOfLines={1}>
+                  {item.artist} {item.album ? `• ${item.album}` : ''}
+                </Text>
+                <View style={styles.badgeRow}>
+                  <View style={[styles.playCountBadge, { backgroundColor: theme.accentSubtle }]}>
+                    <Text style={[styles.playCountText, { color: theme.accentText }]}>
+                      {item.listenCount > 1 ? `🔥 ${item.listenCount} plays` : '1 play'}
+                    </Text>
+                  </View>
+                  {item.durationMs > 0 && (
+                    <Text style={[styles.metaText, { color: theme.textMuted }]}>
+                      {formatDuration(item.durationMs)}
+                    </Text>
+                  )}
+                  <Text style={[styles.metaText, { color: theme.textMuted }]}>
+                    {formatTimeAgo(item.lastListenedAt)}
+                  </Text>
 
-              <TouchableOpacity
-                style={styles.deleteBtn}
-                onPress={() => onDeleteTrack(item.id)}
-                activeOpacity={0.6}
-                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-              >
-                <Ionicons name="close" size={16} color={theme.textMuted} />
-              </TouchableOpacity>
-            </View>
-          </View>
-        )}
+                  {/* Download Status Indicator */}
+                  {isDownloaded ? (
+                    <View style={[styles.downloadedBadge, { backgroundColor: '#10B98115', borderColor: '#10B98130' }]}>
+                      <Ionicons name="musical-notes" size={11} color="#10B981" />
+                      <Text style={[styles.downloadedBadgeText, { color: '#10B981' }]}>
+                        MP3 Ready
+                      </Text>
+                    </View>
+                  ) : item.downloadStatus === 'downloading' ? (
+                    <View style={[styles.downloadingBadge, { backgroundColor: '#F59E0B15', borderColor: '#F59E0B30' }]}>
+                      <Ionicons name="sync" size={11} color="#F59E0B" />
+                      <Text style={[styles.downloadingBadgeText, { color: '#F59E0B' }]}>
+                        {item.progress ? `${Math.round(item.progress)}%` : 'Downloading...'}
+                      </Text>
+                    </View>
+                  ) : item.downloadStatus === 'queued' ? (
+                    <View style={[styles.queuedBadge, { backgroundColor: '#3B82F615', borderColor: '#3B82F630' }]}>
+                      <Ionicons name="time-outline" size={11} color="#3B82F6" />
+                      <Text style={[styles.queuedBadgeText, { color: '#3B82F6' }]}>
+                        Queued
+                      </Text>
+                    </View>
+                  ) : item.downloadStatus === 'failed' ? (
+                    <TouchableOpacity
+                      style={[styles.failedBadge, { backgroundColor: '#EF444415', borderColor: '#EF444430' }]}
+                      onPress={() => onDownloadTrack(item)}
+                      activeOpacity={0.7}
+                    >
+                      <Ionicons name="refresh" size={11} color="#EF4444" />
+                      <Text style={[styles.failedBadgeText, { color: '#EF4444' }]}>
+                        Retry
+                      </Text>
+                    </TouchableOpacity>
+                  ) : (
+                    <TouchableOpacity
+                      style={[styles.downloadBtn, { backgroundColor: theme.surfaceSubtle }]}
+                      onPress={() => onDownloadTrack(item)}
+                      activeOpacity={0.7}
+                    >
+                      <Ionicons name="arrow-down-outline" size={11} color={theme.accent} />
+                      <Text style={[styles.downloadBtnText, { color: theme.accent }]}>
+                        MP3
+                      </Text>
+                    </TouchableOpacity>
+                  )}
+                </View>
+              </View>
+
+              {/* Actions */}
+              <View style={styles.actionRow}>
+                {isDownloaded ? (
+                  <>
+                    <TouchableOpacity
+                      style={[
+                        styles.playBtn,
+                        { backgroundColor: isCurrentPlaying ? theme.warning : theme.accent },
+                      ]}
+                      onPress={() => onPlayLocalTrack?.(item)}
+                      activeOpacity={0.7}
+                      accessibilityLabel="Play Offline Track"
+                    >
+                      <Ionicons
+                        name={isCurrentPlaying ? 'pause' : 'play'}
+                        size={15}
+                        color="#FFFFFF"
+                      />
+                    </TouchableOpacity>
+
+                    <TouchableOpacity
+                      style={[styles.spotifyBtn, { backgroundColor: theme.surfaceSubtle }]}
+                      onPress={() => handlePlayInSpotify(item)}
+                      activeOpacity={0.7}
+                      accessibilityLabel="Open in Spotify"
+                    >
+                      <Ionicons name="open-outline" size={15} color="#1DB954" />
+                    </TouchableOpacity>
+                  </>
+                ) : (
+                  <TouchableOpacity
+                    style={[styles.playBtn, { backgroundColor: theme.accent }]}
+                    onPress={() => handlePlayInSpotify(item)}
+                    activeOpacity={0.7}
+                    accessibilityLabel="Play in Spotify"
+                  >
+                    <Ionicons name="play" size={15} color="#FFFFFF" />
+                  </TouchableOpacity>
+                )}
+
+                <TouchableOpacity
+                  style={styles.deleteBtn}
+                  onPress={() => onDeleteTrack(item.id)}
+                  activeOpacity={0.6}
+                  hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                >
+                  <Ionicons name="close" size={16} color={theme.textMuted} />
+                </TouchableOpacity>
+              </View>
+            </TouchableOpacity>
+          );
+        }}
       />
     </View>
   );
@@ -550,5 +757,142 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     lineHeight: 18,
     maxWidth: 260,
+  },
+  autoDownloadCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    borderWidth: 1,
+    borderRadius: 14,
+    padding: 14,
+    marginBottom: 14,
+    gap: 12,
+  },
+  autoDownloadInfo: {
+    flex: 1,
+  },
+  autoDownloadTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginBottom: 3,
+  },
+  autoDownloadTitle: {
+    fontSize: 14,
+    fontWeight: '700',
+  },
+  autoDownloadSub: {
+    fontSize: 11,
+    fontWeight: '400',
+    lineHeight: 15,
+  },
+  autoDownloadPath: {
+    fontSize: 10,
+    fontWeight: '500',
+    marginTop: 4,
+  },
+  togglePill: {
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  togglePillText: {
+    fontSize: 12,
+    fontWeight: '800',
+    letterSpacing: 0.5,
+  },
+  downloadedBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    borderWidth: 1,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 6,
+  },
+  downloadedBadgeText: {
+    fontSize: 10,
+    fontWeight: '700',
+  },
+  downloadingBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    borderWidth: 1,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 6,
+  },
+  downloadingBadgeText: {
+    fontSize: 10,
+    fontWeight: '700',
+  },
+  queuedBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    borderWidth: 1,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 6,
+  },
+  queuedBadgeText: {
+    fontSize: 10,
+    fontWeight: '700',
+  },
+  failedBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    borderWidth: 1,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 6,
+  },
+  failedBadgeText: {
+    fontSize: 10,
+    fontWeight: '700',
+  },
+  downloadBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 6,
+  },
+  downloadBtnText: {
+    fontSize: 10,
+    fontWeight: '700',
+  },
+  actionHeaderRow: {
+    marginBottom: 12,
+  },
+  shuffleButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    paddingVertical: 12,
+    borderRadius: 14,
+    shadowColor: '#000',
+    shadowOpacity: 0.08,
+    shadowRadius: 6,
+    elevation: 2,
+  },
+  shuffleButtonText: {
+    color: '#FFFFFF',
+    fontSize: 14,
+    fontWeight: '700',
+    letterSpacing: 0.3,
+  },
+  spotifyBtn: {
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
 });

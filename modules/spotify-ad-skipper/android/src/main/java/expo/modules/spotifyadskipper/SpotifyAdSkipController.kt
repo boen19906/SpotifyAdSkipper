@@ -58,16 +58,23 @@ object SpotifyAdSkipController {
         }
     }
 
+    private var isMutedBySkipper: Boolean = false
+    private var savedVolume: Int = -1
+
     fun muteAudioImmediately(context: Context) {
         try {
             if (!autoMute) return
             val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as? AudioManager ?: return
-            val currentVol = audioManager.getStreamVolume(AudioManager.STREAM_MUSIC)
-            // Save the volume only if we haven't already saved it, and current volume is audible (> 0)
-            if (savedVolume <= 0 && currentVol > 0) {
-                savedVolume = currentVol
-                Log.d(TAG, "Captured playback volume before mute: $savedVolume")
+
+            // Capture the user's volume only if not already muted
+            if (!isMutedBySkipper) {
+                val currentVol = audioManager.getStreamVolume(AudioManager.STREAM_MUSIC)
+                if (currentVol > 0) {
+                    savedVolume = currentVol
+                    Log.d(TAG, "Captured playback volume before mute: $savedVolume")
+                }
             }
+
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
                 audioManager.adjustStreamVolume(
                     AudioManager.STREAM_MUSIC,
@@ -77,40 +84,116 @@ object SpotifyAdSkipController {
             } else {
                 audioManager.setStreamVolume(AudioManager.STREAM_MUSIC, 0, 0)
             }
+            isMutedBySkipper = true
             Log.d(TAG, "Audio muted immediately upon ad detection")
         } catch (e: Exception) {
             Log.e(TAG, "Failed to mute audio immediately", e)
         }
     }
 
+    private var adWatcherRunnable: Runnable? = null
+    private val watcherHandler = Handler(Looper.getMainLooper())
+
+    fun isCurrentMediaAnAd(context: Context): Boolean {
+        try {
+            val controller = SpotifyNotificationListener.getSpotifyController(context)
+            val meta = controller?.metadata ?: return false
+            val title = meta.getString(MediaMetadata.METADATA_KEY_TITLE) ?: ""
+            val artist = meta.getString(MediaMetadata.METADATA_KEY_ARTIST) ?: ""
+            val album = meta.getString(MediaMetadata.METADATA_KEY_ALBUM) ?: ""
+            return SpotifyNotificationListener.isAdKeyword(title) ||
+                   SpotifyNotificationListener.isAdKeyword(artist) ||
+                   SpotifyNotificationListener.isAdKeyword(album)
+        } catch (e: Exception) {
+            return false
+        }
+    }
+
+    fun startContinuousAdWatcher(context: Context) {
+        adWatcherRunnable?.let { watcherHandler.removeCallbacks(it) }
+        var watcherAttempts = 0
+        val maxWatcherAttempts = 120 // Monitor for up to 60 seconds (120 * 500ms)
+
+        adWatcherRunnable = object : Runnable {
+            override fun run() {
+                watcherAttempts++
+                val controller = SpotifyNotificationListener.getSpotifyController(context)
+                val meta = controller?.metadata
+                val title = meta?.getString(MediaMetadata.METADATA_KEY_TITLE) ?: ""
+                val artist = meta?.getString(MediaMetadata.METADATA_KEY_ARTIST) ?: ""
+                val album = meta?.getString(MediaMetadata.METADATA_KEY_ALBUM) ?: ""
+
+                val isAdNow = SpotifyNotificationListener.isAdKeyword(title) ||
+                              SpotifyNotificationListener.isAdKeyword(artist) ||
+                              SpotifyNotificationListener.isAdKeyword(album)
+
+                if (isAdNow) {
+                    // Ad is still actively running: guarantee audio is muted
+                    muteAudioImmediately(context)
+                    if (watcherAttempts < maxWatcherAttempts) {
+                        watcherHandler.postDelayed(this, 500L)
+                    } else {
+                        Log.w(TAG, "Ad watcher reached 60s timeout while still on ad. Resetting skip flag.")
+                        finishSkipAndRestoreState(context)
+                    }
+                } else if (title.isNotBlank() && !title.equals("Spotify", ignoreCase = true)) {
+                    // A real non-ad song has arrived!
+                    Log.i(TAG, "Ad finished! Real song started: '$title' by '$artist'. Restoring audio...")
+                    ensureAudioUnmuted(context)
+                    skipCount++
+                    val timestamp = System.currentTimeMillis()
+                    val adName = if (currentAdTitle.isNotBlank()) currentAdTitle else "Spotify Advertisement"
+                    onAdSkippedListener?.invoke(adName, 30, timestamp)
+                    finishSkipAndRestoreState(context)
+                } else if (watcherAttempts < maxWatcherAttempts) {
+                    // In-between tracks / buffering: stay muted and check again
+                    muteAudioImmediately(context)
+                    watcherHandler.postDelayed(this, 500L)
+                } else {
+                    finishSkipAndRestoreState(context)
+                }
+            }
+        }
+        watcherHandler.postDelayed(adWatcherRunnable!!, 300L)
+    }
+
     fun ensureAudioUnmuted(context: Context) {
         try {
             if (!autoMute) return
-            val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as? AudioManager ?: return
-            var unmutedAny = false
 
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-                if (audioManager.isStreamMute(AudioManager.STREAM_MUSIC)) {
+            // CRITICAL GUARD: NEVER unmute if Spotify is currently playing an ad!
+            if (isCurrentMediaAnAd(context)) {
+                Log.w(TAG, "ensureAudioUnmuted: Active media is currently an ad. Keeping muted!")
+                return
+            }
+
+            val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as? AudioManager ?: return
+
+            val isMuted = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                audioManager.isStreamMute(AudioManager.STREAM_MUSIC)
+            } else {
+                isMutedBySkipper
+            }
+
+            // Only unmute if our skipper actually muted it or the stream is currently reported muted
+            if (isMuted || isMutedBySkipper) {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
                     audioManager.adjustStreamVolume(
                         AudioManager.STREAM_MUSIC,
                         AudioManager.ADJUST_UNMUTE,
                         0
                     )
-                    unmutedAny = true
-                    Log.i(TAG, "Safety: Unmuted music stream because normal song is active")
                 }
-            }
 
-            val current = audioManager.getStreamVolume(AudioManager.STREAM_MUSIC)
-            if (current == 0) {
-                val maxVol = audioManager.getStreamMaxVolume(AudioManager.STREAM_MUSIC)
-                val target = if (savedVolume > 0) savedVolume else (maxVol * 0.6).toInt().coerceAtLeast(1)
-                audioManager.setStreamVolume(AudioManager.STREAM_MUSIC, target, 0)
-                Log.i(TAG, "Safety: Restored volume to $target because normal song is active")
-                unmutedAny = true
-            }
+                // Only if stream volume remained at 0 and we saved the user's previous volume, restore it
+                val current = audioManager.getStreamVolume(AudioManager.STREAM_MUSIC)
+                if (current == 0 && savedVolume > 0) {
+                    audioManager.setStreamVolume(AudioManager.STREAM_MUSIC, savedVolume, 0)
+                    Log.i(TAG, "Restored volume to user's setting: $savedVolume")
+                }
 
-            if (unmutedAny) {
+                Log.i(TAG, "Safety: Unmuted music stream because normal song is active")
+                isMutedBySkipper = false
                 savedVolume = -1
             }
         } catch (e: Exception) {
@@ -120,8 +203,10 @@ object SpotifyAdSkipController {
 
     var isAutomatingForceStop: Boolean = false
     private val isSkipping = AtomicBoolean(false)
+    val isCurrentlySkipping: Boolean get() = isSkipping.get()
+    @Volatile
+    var packageBeforeSkip: String? = null
     private var lastSkipTimestamp: Long = 0L
-    private var savedVolume: Int = -1
     private var currentAdTitle: String = ""
     private var wakeLock: PowerManager.WakeLock? = null
     private var wasScreenOff: Boolean = false
@@ -182,6 +267,16 @@ object SpotifyAdSkipController {
         lastSkipTimestamp = now
         currentAdTitle = trackTitle
 
+        val powerManager = context.getSystemService(Context.POWER_SERVICE) as? PowerManager
+        wasScreenOff = powerManager != null && !powerManager.isInteractive
+        if (!wasScreenOff) {
+            packageBeforeSkip = SpotifyAccessibilityService.getActiveForegroundPackage(context)
+            Log.i(TAG, "Screen is ON during ad detection. Captured foreground package to restore: '$packageBeforeSkip'")
+        } else {
+            packageBeforeSkip = null
+            Log.i(TAG, "Screen is OFF during ad detection. Will restore lockscreen state upon completion.")
+        }
+
         // Ensure we capture the song that played immediately before the ad
         if (lastPlayedSongTitle.isBlank()) {
             val controller = SpotifyNotificationListener.getSpotifyController(context)
@@ -213,11 +308,10 @@ object SpotifyAdSkipController {
 
         try {
             // STEP 1: Check screen state & acquire WakeLock so CPU doesn't sleep during the settle delay
-            val powerManager = context.getSystemService(Context.POWER_SERVICE) as? PowerManager
-            wasScreenOff = powerManager != null && !powerManager.isInteractive
             if (wasScreenOff) {
                 Log.i(TAG, "Screen is off/sleeping. Acquiring WakeLock for settle delay and skip automation.")
                 try {
+                    val powerManager = context.getSystemService(Context.POWER_SERVICE) as? PowerManager
                     wakeLock?.let { if (it.isHeld) it.release() }
                     @Suppress("DEPRECATION")
                     wakeLock = powerManager?.newWakeLock(
@@ -260,22 +354,19 @@ object SpotifyAdSkipController {
                             }
                         }, 5000L)
                     } else {
-                        Log.w(TAG, "AccessibilityService is not enabled! Trying fallback process kill")
-                        killSpotifyFallback(context)
-
-                        handler.postDelayed({
-                            onForceStopCompleted(context)
-                        }, restartDelayMs)
+                        Log.w(TAG, "AccessibilityService is not enabled! Muting ad and maintaining silent watch until real song plays.")
+                        muteAudioImmediately(context)
+                        startContinuousAdWatcher(context)
                     }
                 } catch (e: Exception) {
                     Log.e(TAG, "Error in delayed force stop trigger", e)
-                    isSkipping.set(false)
+                    finishSkipAndRestoreState(context)
                 }
             }, adSettleDelayMs)
 
         } catch (e: Exception) {
             Log.e(TAG, "Error executing ad skip sequence", e)
-            isSkipping.set(false)
+            finishSkipAndRestoreState(context)
         }
     }
 
@@ -294,7 +385,7 @@ object SpotifyAdSkipController {
             } catch (e: Exception) {
                 Log.e(TAG, "Error in relaunch step", e)
                 try { wakeLock?.let { if (it.isHeld) it.release() } } catch (e: Exception) {}
-                isSkipping.set(false)
+                finishSkipAndRestoreState(context)
             }
         }, 400L)
     }
@@ -303,15 +394,37 @@ object SpotifyAdSkipController {
         val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as? AudioManager
         val handler = Handler(Looper.getMainLooper())
         var attempts = 0
+        val maxAttempts = 16
 
         val checkRunnable = object : Runnable {
             override fun run() {
                 attempts++
                 val controller = SpotifyNotificationListener.getSpotifyController(context)
-                val currentTitle = controller?.metadata?.getString(MediaMetadata.METADATA_KEY_TITLE) ?: ""
+                val meta = controller?.metadata
+                val currentTitle = meta?.getString(MediaMetadata.METADATA_KEY_TITLE) ?: ""
+                val currentArtist = meta?.getString(MediaMetadata.METADATA_KEY_ARTIST) ?: ""
+                val currentAlbum = meta?.getString(MediaMetadata.METADATA_KEY_ALBUM) ?: ""
+
+                val isAdNow = SpotifyNotificationListener.isAdKeyword(currentTitle) ||
+                              SpotifyNotificationListener.isAdKeyword(currentArtist) ||
+                              SpotifyNotificationListener.isAdKeyword(currentAlbum)
 
                 if (controller != null && currentTitle.isNotBlank()) {
-                    Log.i(TAG, "Spotify MediaController detected. Current title: '$currentTitle', Song before ad: '$songBeforeAd'")
+                    Log.i(TAG, "Spotify MediaController detected. Current: '$currentTitle' by '$currentArtist', Song before ad: '$songBeforeAd', isAd=$isAdNow")
+
+                    if (isAdNow) {
+                        // STILL AN AD! KEEP MUTED! DO NOT UNMUTE!
+                        Log.w(TAG, "Relaunched Spotify but it is STILL playing an ad ('$currentTitle'). Audio remains muted.")
+                        muteAudioImmediately(context)
+
+                        if (attempts < maxAttempts) {
+                            handler.postDelayed(this, 350L)
+                            return
+                        } else {
+                            startContinuousAdWatcher(context)
+                            return
+                        }
+                    }
 
                     // If Spotify still restored the finished song despite settle delay:
                     if (songBeforeAd.isNotBlank() && currentTitle.equals(songBeforeAd, ignoreCase = true)) {
@@ -334,57 +447,70 @@ object SpotifyAdSkipController {
                                 finalizeResume(context, audioManager)
                             }, 500L)
                         }, 400L)
-                    } else {
-                        // Natural case: Spotify successfully advanced to the next song!
-                        Log.i(TAG, "Spotify successfully advanced to new track ('$currentTitle')! Resuming playback (0 skips burned)...")
-                        try {
-                            controller.transportControls.play()
-                        } catch (e: Exception) {
-                            dispatchMediaKeyEvent(context, audioManager, KeyEvent.KEYCODE_MEDIA_PLAY)
-                        }
-
-                        handler.postDelayed({
-                            finalizeResume(context, audioManager)
-                        }, 500L)
+                        return
                     }
-                } else if (attempts < 14) {
-                    // Poll every 250ms for up to ~3.5 seconds while Spotify cold-starts
-                    handler.postDelayed(this, 250L)
-                } else {
-                    Log.w(TAG, "MediaController not ready after timeout. Executing PLAY key event fallback...")
-                    dispatchMediaKeyEvent(context, audioManager, KeyEvent.KEYCODE_MEDIA_PLAY)
+
+                    // Natural case: Spotify successfully advanced to the next song!
+                    Log.i(TAG, "Spotify successfully advanced to new non-ad track ('$currentTitle')! Resuming playback...")
+                    try {
+                        controller.transportControls.play()
+                    } catch (e: Exception) {
+                        dispatchMediaKeyEvent(context, audioManager, KeyEvent.KEYCODE_MEDIA_PLAY)
+                    }
+
                     handler.postDelayed({
                         finalizeResume(context, audioManager)
                     }, 500L)
+                    return
+                }
+
+                if (attempts < maxAttempts) {
+                    handler.postDelayed(this, 250L)
+                } else {
+                    Log.w(TAG, "MediaController not ready after timeout. Checking before unmuting...")
+                    if (!isCurrentMediaAnAd(context)) {
+                        dispatchMediaKeyEvent(context, audioManager, KeyEvent.KEYCODE_MEDIA_PLAY)
+                        handler.postDelayed({
+                            finalizeResume(context, audioManager)
+                        }, 500L)
+                    } else {
+                        Log.w(TAG, "Timeout but media is still an ad. Audio remains muted.")
+                        startContinuousAdWatcher(context)
+                    }
                 }
             }
         }
 
-        // Start checking 1200ms after relaunch
-        handler.postDelayed(checkRunnable, 1200L)
+        // Start checking 800ms after relaunch
+        handler.postDelayed(checkRunnable, 800L)
     }
 
     private fun finalizeResume(context: Context, audioManager: AudioManager?) {
         val handler = Handler(Looper.getMainLooper())
 
-        // STEP 7: Restore original volume safely
-        if (autoMute && audioManager != null) {
-            val maxVol = audioManager.getStreamMaxVolume(AudioManager.STREAM_MUSIC)
-            val restoreVol = if (savedVolume > 0) savedVolume else (maxVol * 0.6).toInt().coerceAtLeast(1)
-
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-                audioManager.adjustStreamVolume(
-                    AudioManager.STREAM_MUSIC,
-                    AudioManager.ADJUST_UNMUTE,
-                    0
-                )
-            }
-            audioManager.setStreamVolume(AudioManager.STREAM_MUSIC, restoreVol, 0)
-            Log.d(TAG, "Audio unmuted to volume: $restoreVol (previous saved: $savedVolume)")
-            savedVolume = -1
+        // CRITICAL GUARD: Verify that active media is NOT an advertisement before unmuting!
+        if (isCurrentMediaAnAd(context)) {
+            Log.w(TAG, "finalizeResume called but media is still an ad! REFUSING to unmute.")
+            muteAudioImmediately(context)
+            startContinuousAdWatcher(context)
+            return
         }
 
-        // STEP 8: If the screen was off before the skip, turn it back off immediately
+        // STEP 7: Restore original volume safely (without overriding user's volume level)
+        ensureAudioUnmuted(context)
+
+        skipCount++
+        val timestamp = System.currentTimeMillis()
+        val title = if (currentAdTitle.isNotBlank()) currentAdTitle else "Spotify Advertisement"
+        onAdSkippedListener?.invoke(title, 30, timestamp)
+        Log.i(TAG, "Successfully completed skip loophole for: $title. Total skipped: $skipCount")
+
+        // STEP 8: Restore screen-off or previous app/window state
+        finishSkipAndRestoreState(context)
+    }
+
+    fun finishSkipAndRestoreState(context: Context) {
+        val handler = Handler(Looper.getMainLooper())
         if (wasScreenOff) {
             Log.i(TAG, "Restoring screen-off state via GLOBAL_ACTION_LOCK_SCREEN")
             handler.postDelayed({
@@ -395,13 +521,20 @@ object SpotifyAdSkipController {
                     Log.e(TAG, "Error releasing wakeLock", e)
                 }
             }, 500L)
+        } else {
+            // Screen was ON: Return to the app or window the user was on before the skip!
+            val powerManager = context.getSystemService(Context.POWER_SERVICE) as? PowerManager
+            if (powerManager?.isInteractive == true) {
+                val targetToRestore = packageBeforeSkip
+                packageBeforeSkip = null
+                Log.i(TAG, "Screen was on during skip. Restoring previous app/window: '$targetToRestore'")
+                handler.postDelayed({
+                    SpotifyAccessibilityService.restoreAppOrWindow(context, targetToRestore)
+                }, 300L)
+            } else {
+                packageBeforeSkip = null
+            }
         }
-
-        skipCount++
-        val timestamp = System.currentTimeMillis()
-        val title = if (currentAdTitle.isNotBlank()) currentAdTitle else "Spotify Advertisement"
-        onAdSkippedListener?.invoke(title, 30, timestamp)
-        Log.i(TAG, "Successfully completed skip loophole for: $title. Total skipped: $skipCount")
         isSkipping.set(false)
     }
 
@@ -420,7 +553,8 @@ object SpotifyAdSkipController {
             if (launchIntent != null) {
                 launchIntent.addFlags(
                     Intent.FLAG_ACTIVITY_NEW_TASK or
-                    Intent.FLAG_ACTIVITY_RESET_TASK_IF_NEEDED
+                    Intent.FLAG_ACTIVITY_RESET_TASK_IF_NEEDED or
+                    Intent.FLAG_ACTIVITY_NO_ANIMATION
                 )
                 context.startActivity(launchIntent)
             } else {

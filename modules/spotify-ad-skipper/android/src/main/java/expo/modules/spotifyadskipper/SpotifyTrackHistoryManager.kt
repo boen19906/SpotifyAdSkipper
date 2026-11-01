@@ -277,11 +277,97 @@ object SpotifyTrackHistoryManager {
             file.writeText(newArray.toString())
             Log.i(TAG, "Native: Successfully saved listened track to storage: '$title' by '$artist'")
 
+            // Trigger auto-download if enabled
+            if (SpotifyAudioDownloader.autoDownloadEnabled) {
+                val trackItemId = targetObj.optString("id", "")
+                val durMs = targetObj.optInt("durationMs", durationMs)
+                SpotifyAudioDownloader.enqueueDownload(
+                    appContext,
+                    cleanTitle,
+                    cleanArtist,
+                    album,
+                    cleanTrackId,
+                    customId = trackItemId,
+                    durationMs = durMs
+                )
+            }
+
             Handler(Looper.getMainLooper()).post {
                 onTrackCommittedListener?.invoke(title, artist, album, trackId, durationMs)
             }
         } catch (e: Exception) {
             Log.e(TAG, "Error saving listened track to native storage", e)
+        }
+    }
+
+    @Synchronized
+    fun updateTrackDownloadStatus(
+        context: Context,
+        idOrKey: String,
+        title: String,
+        artist: String,
+        status: String,
+        filePath: String?
+    ) {
+        val appContext = context.applicationContext ?: context
+        try {
+            if (!appContext.filesDir.exists()) {
+                appContext.filesDir.mkdirs()
+            }
+            val file = File(appContext.filesDir, FILE_NAME)
+            val jsonArray = if (file.exists() && file.readText().isNotBlank()) {
+                JSONArray(file.readText())
+            } else {
+                JSONArray()
+            }
+            var modified = false
+
+            for (i in 0 until jsonArray.length()) {
+                val item = jsonArray.getJSONObject(i)
+                val itemId = item.optString("id", "")
+                val itemTitle = item.optString("title", "")
+                val itemArtist = item.optString("artist", "")
+
+                val isMatch = (itemId.isNotBlank() && itemId == idOrKey) ||
+                        (itemTitle.equals(title, ignoreCase = true) && itemArtist.equals(artist, ignoreCase = true))
+
+                if (isMatch) {
+                    item.put("downloadStatus", status)
+                    if (filePath != null) {
+                        item.put("localFilePath", filePath)
+                    }
+                    modified = true
+                    break
+                }
+            }
+
+            // If track was not in history (e.g. downloaded from Discover recommendations), add it!
+            if (!modified) {
+                val newObj = JSONObject()
+                val now = System.currentTimeMillis()
+                newObj.put("id", idOrKey)
+                newObj.put("trackId", "spotify:search:${title}_${artist}")
+                newObj.put("title", title)
+                newObj.put("artist", artist)
+                newObj.put("album", "Discoveries")
+                newObj.put("durationMs", 180000)
+                newObj.put("firstListenedAt", now)
+                newObj.put("lastListenedAt", now)
+                newObj.put("listenCount", 1)
+                newObj.put("totalDurationListenedMs", 30000L)
+                newObj.put("downloadStatus", status)
+                if (filePath != null) {
+                    newObj.put("localFilePath", filePath)
+                }
+                jsonArray.put(newObj)
+                modified = true
+            }
+
+            if (modified) {
+                file.writeText(jsonArray.toString())
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Error updating track download status", e)
         }
     }
 
@@ -311,6 +397,7 @@ object SpotifyTrackHistoryManager {
                 map["listenCount"] = item.optInt("listenCount", 1)
                 map["totalDurationListenedMs"] = item.optDouble("totalDurationListenedMs", 0.0)
                 map["downloadStatus"] = item.optString("downloadStatus", "idle")
+                map["localFilePath"] = item.optString("localFilePath", "")
                 list.add(map)
             }
         } catch (e: Exception) {

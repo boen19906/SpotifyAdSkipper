@@ -13,12 +13,16 @@ import android.provider.Settings
 import android.util.Log
 import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
+import android.view.accessibility.AccessibilityWindowInfo
 
 class SpotifyAccessibilityService : AccessibilityService() {
     companion object {
         private const val TAG = "SpotifyAccessService"
         var instance: SpotifyAccessibilityService? = null
         val isRunning: Boolean get() = instance != null
+
+        @Volatile
+        var lastForegroundPackage: String? = null
 
         fun requestForceStop(context: Context) {
             Log.i(TAG, "Requesting automated Force Stop via AccessibilityService")
@@ -48,6 +52,139 @@ class SpotifyAccessibilityService : AccessibilityService() {
                 Log.e(TAG, "Failed to perform GLOBAL_ACTION_LOCK_SCREEN", e)
             }
         }
+
+        fun returnToHomeScreen(context: Context) {
+            Log.i(TAG, "Executing return to Home screen")
+            var navigated = false
+            try {
+                navigated = instance?.performGlobalAction(GLOBAL_ACTION_HOME) == true
+            } catch (e: Exception) {
+                Log.w(TAG, "performGlobalAction(GLOBAL_ACTION_HOME) failed", e)
+            }
+            if (!navigated) {
+                try {
+                    val homeIntent = Intent(Intent.ACTION_MAIN).apply {
+                        addCategory(Intent.CATEGORY_HOME)
+                        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_NO_ANIMATION)
+                    }
+                    context.startActivity(homeIntent)
+                    Log.i(TAG, "Dispatched HOME intent as fallback")
+                } catch (e: Exception) {
+                    Log.e(TAG, "Failed to dispatch HOME intent", e)
+                }
+            }
+        }
+
+        fun isLauncherPackage(context: Context, packageName: String?): Boolean {
+            if (packageName.isNullOrBlank()) return true
+            try {
+                val intent = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_HOME)
+                val resolveInfo = context.packageManager.resolveActivity(intent, 0)
+                val defaultLauncher = resolveInfo?.activityInfo?.packageName
+                if (defaultLauncher != null && defaultLauncher.equals(packageName, ignoreCase = true)) {
+                    return true
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "Error resolving default launcher", e)
+            }
+            val knownLaunchers = setOf(
+                "com.sec.android.app.launcher",
+                "com.google.android.apps.nexuslauncher",
+                "com.android.launcher3",
+                "com.android.launcher",
+                "com.miui.home",
+                "com.huawei.android.launcher",
+                "com.oppo.launcher",
+                "com.oneplus.launcher",
+                "com.teslacoilsw.launcher",
+                "com.microsoft.launcher",
+                "com.actionlauncher.playstore",
+                "com.smartlauncher.smartlauncher"
+            )
+            return knownLaunchers.contains(packageName.lowercase())
+        }
+
+        private fun isValidCandidatePackage(context: Context, pkg: String?): Boolean {
+            if (pkg.isNullOrBlank()) return false
+            val p = pkg.lowercase()
+            if (p.contains("settings")) return false
+            if (p == "com.android.systemui") return false
+            if (p.startsWith("android")) return false
+            return true
+        }
+
+        fun getActiveForegroundPackage(context: Context): String? {
+            // 1. Try active window root node
+            try {
+                val root = instance?.rootInActiveWindow
+                val pkg = root?.packageName?.toString()
+                if (isValidCandidatePackage(context, pkg)) {
+                    Log.d(TAG, "Identified active package from rootInActiveWindow: $pkg")
+                    return pkg
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "Error checking rootInActiveWindow", e)
+            }
+
+            // 2. Try window list
+            try {
+                val windowList = instance?.windows
+                if (windowList != null) {
+                    for (window in windowList) {
+                        if (window.type == AccessibilityWindowInfo.TYPE_APPLICATION && (window.isActive || window.isFocused)) {
+                            val pkg = window.root?.packageName?.toString()
+                            if (isValidCandidatePackage(context, pkg)) {
+                                Log.d(TAG, "Identified active package from window list: $pkg")
+                                return pkg
+                            }
+                        }
+                    }
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "Error inspecting accessibility window list", e)
+            }
+
+            // 3. Fall back to tracked lastForegroundPackage
+            if (isValidCandidatePackage(context, lastForegroundPackage)) {
+                Log.d(TAG, "Falling back to tracked lastForegroundPackage: $lastForegroundPackage")
+                return lastForegroundPackage
+            }
+
+            return lastForegroundPackage
+        }
+
+        fun restoreAppOrWindow(context: Context, targetPackage: String?) {
+            Log.i(TAG, "Restoring previous app/window: target='$targetPackage'")
+
+            if (targetPackage.isNullOrBlank() || isLauncherPackage(context, targetPackage)) {
+                Log.i(TAG, "Previous state was Home screen or empty. Returning to Home screen.")
+                returnToHomeScreen(context)
+                return
+            }
+
+            if (targetPackage.equals(SpotifyAdSkipController.SPOTIFY_PACKAGE, ignoreCase = true)) {
+                Log.i(TAG, "Previous state was Spotify itself. Keeping Spotify open.")
+                return
+            }
+
+            try {
+                val launchIntent = context.packageManager.getLaunchIntentForPackage(targetPackage)
+                if (launchIntent != null) {
+                    launchIntent.addFlags(
+                        Intent.FLAG_ACTIVITY_NEW_TASK or
+                        Intent.FLAG_ACTIVITY_NO_ANIMATION
+                    )
+                    context.startActivity(launchIntent)
+                    Log.i(TAG, "Successfully restored previous app: $targetPackage")
+                } else {
+                    Log.w(TAG, "No launch intent found for $targetPackage. Returning to Home screen as fallback.")
+                    returnToHomeScreen(context)
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to restore app $targetPackage", e)
+                returnToHomeScreen(context)
+            }
+        }
     }
 
     override fun onServiceConnected() {
@@ -67,6 +204,21 @@ class SpotifyAccessibilityService : AccessibilityService() {
     }
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
+        if (event == null) return
+
+        if (event.eventType == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) {
+            val pkg = event.packageName?.toString()
+            if (!pkg.isNullOrBlank() &&
+                !pkg.contains("settings", ignoreCase = true) &&
+                pkg != "com.android.systemui" &&
+                !SpotifyAdSkipController.isAutomatingForceStop &&
+                !SpotifyAdSkipController.isCurrentlySkipping
+            ) {
+                lastForegroundPackage = pkg
+                Log.d(TAG, "Recorded active foreground package: $pkg")
+            }
+        }
+
         if (!SpotifyAdSkipController.isAutomatingForceStop) {
             return
         }
@@ -237,6 +389,14 @@ class SpotifyAccessibilityService : AccessibilityService() {
     private fun finishForceStop() {
         Log.i(TAG, "Force stop confirmed successfully via AccessibilityService")
         SpotifyAdSkipController.isAutomatingForceStop = false
+
+        Handler(Looper.getMainLooper()).postDelayed({
+            try {
+                performGlobalAction(GLOBAL_ACTION_BACK)
+            } catch (e: Exception) {
+                Log.w(TAG, "Error performing back on Settings window", e)
+            }
+        }, 120L)
 
         Handler(Looper.getMainLooper()).postDelayed({
             SpotifyAdSkipController.onForceStopCompleted(applicationContext)

@@ -17,8 +17,9 @@ export interface ListenedTrack {
   lastListenedAt: number;
   listenCount: number;
   totalDurationListenedMs: number;
-  downloadStatus: 'idle' | 'recording' | 'downloaded' | 'failed';
+  downloadStatus: 'idle' | 'queued' | 'downloading' | 'downloaded' | 'failed';
   localFilePath?: string;
+  progress?: number;
 }
 
 export interface ListenedStats {
@@ -111,6 +112,9 @@ export async function getListenedTracks(): Promise<ListenedTrack[]> {
               Number(item.totalDurationListenedMs) || 0,
               existing.totalDurationListenedMs || 0
             ),
+            downloadStatus: item.downloadStatus ? (item.downloadStatus as any) : existing.downloadStatus,
+            localFilePath: item.localFilePath ? String(item.localFilePath) : existing.localFilePath,
+            progress: existing.progress,
           };
           mergedMap.set(key, updated);
         } else {

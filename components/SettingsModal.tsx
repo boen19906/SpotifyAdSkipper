@@ -7,12 +7,18 @@ import {
   TouchableOpacity,
   Switch,
   ScrollView,
+  TextInput,
   Platform,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import { SkipperConfig } from '../modules/spotify-ad-skipper';
 import { ThemeColors } from '../theme';
+import {
+  getCustomLastFmApiKey,
+  saveCustomLastFmApiKey,
+  clearRecommendationsCache,
+} from '../services/recommendationService';
 
 interface SettingsModalProps {
   theme: ThemeColors;
@@ -37,14 +43,32 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   const [autoMute, setAutoMute] = useState(config.autoMute);
   const [restartDelay, setRestartDelay] = useState(config.restartDelayMs);
   const [relaunchWait, setRelaunchWait] = useState(config.relaunchWaitMs);
+  const [customKey, setCustomKey] = useState('');
+  const [cacheCleared, setCacheCleared] = useState(false);
+
+  React.useEffect(() => {
+    let isMounted = true;
+    if (visible) {
+      getCustomLastFmApiKey().then((k) => {
+        if (isMounted) {
+          setCustomKey(k);
+          setCacheCleared(false);
+        }
+      });
+    }
+    return () => {
+      isMounted = false;
+    };
+  }, [visible]);
 
   const delayOptions = [600, 800, 1000, 1200, 1500];
   const waitOptions = [1500, 2000, 2500, 3000, 3500];
 
-  const handleSave = () => {
+  const handleSave = async () => {
     try {
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     } catch {}
+    await saveCustomLastFmApiKey(customKey);
     onSaveConfig({
       enabled: config.isEnabled,
       autoMute,
@@ -228,6 +252,79 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 ))}
               </View>
             </View>
+
+            {/* Music Recommendations (Last.fm) Card */}
+            <View
+              style={[
+                styles.settingCard,
+                { backgroundColor: theme.surfaceSubtle, borderColor: theme.border },
+              ]}
+            >
+              <View style={styles.recHeaderRow}>
+                <Ionicons name="sparkles" size={16} color={theme.accent} />
+                <Text style={[styles.settingLabel, { color: theme.textPrimary, marginBottom: 0 }]}>
+                  Music Discovery Engine
+                </Text>
+              </View>
+              <Text style={[styles.settingSubLabel, { color: theme.textSecondary, marginTop: 4 }]}>
+                Powered by Last.fm seed similarity using your on-device playback history. Zero login required.
+              </Text>
+
+              {/* Status Badge */}
+              <View style={[styles.statusBadge, { backgroundColor: theme.accentSubtle }]}>
+                <Ionicons name="checkmark-circle" size={14} color={theme.accent} />
+                <Text style={[styles.statusBadgeText, { color: theme.accentText }]}>
+                  {customKey.trim() ? 'Using Custom Last.fm Key' : 'Built-in Last.fm Key (Active)'}
+                </Text>
+              </View>
+
+              {/* Custom API Key Input */}
+              <Text style={[styles.inputLabel, { color: theme.textMuted }]}>
+                Custom Last.fm API Key (Optional):
+              </Text>
+              <TextInput
+                style={[
+                  styles.apiKeyInput,
+                  {
+                    backgroundColor: theme.surface,
+                    borderColor: theme.border,
+                    color: theme.textPrimary,
+                  },
+                ]}
+                placeholder="Leave blank to use built-in key"
+                placeholderTextColor={theme.textMuted}
+                value={customKey}
+                onChangeText={setCustomKey}
+                autoCapitalize="none"
+                autoCorrect={false}
+              />
+
+              {/* Clear Cache Button */}
+              <TouchableOpacity
+                style={[styles.clearCacheBtn, { backgroundColor: theme.surface }]}
+                onPress={async () => {
+                  await clearRecommendationsCache();
+                  setCacheCleared(true);
+                  try {
+                    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+                  } catch {}
+                }}
+              >
+                <Ionicons
+                  name={cacheCleared ? 'checkmark' : 'trash-outline'}
+                  size={14}
+                  color={cacheCleared ? theme.accent : theme.textMuted}
+                />
+                <Text
+                  style={[
+                    styles.clearCacheText,
+                    { color: cacheCleared ? theme.accent : theme.textSecondary },
+                  ]}
+                >
+                  {cacheCleared ? 'Cache Cleared! Discover tab will refresh' : 'Clear Discovery Cache'}
+                </Text>
+              </TouchableOpacity>
+            </View>
           </ScrollView>
 
           {/* Sticky Bottom Save Button */}
@@ -354,5 +451,50 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontWeight: '700',
     color: '#FFFFFF',
+  },
+  recHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginBottom: 4,
+  },
+  statusBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    alignSelf: 'flex-start',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 8,
+    marginBottom: 12,
+  },
+  statusBadgeText: {
+    fontSize: 11,
+    fontWeight: '700',
+  },
+  inputLabel: {
+    fontSize: 11,
+    fontWeight: '600',
+    marginBottom: 6,
+  },
+  apiKeyInput: {
+    borderWidth: 1,
+    borderRadius: 10,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    fontSize: 12,
+    marginBottom: 10,
+  },
+  clearCacheBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    paddingVertical: 8,
+    borderRadius: 10,
+  },
+  clearCacheText: {
+    fontSize: 11,
+    fontWeight: '600',
   },
 });

@@ -37,6 +37,8 @@ class SpotifyNotificationListener : NotificationListenerService() {
             return null
         }
 
+        private val AD_SLOT_REGEX = Regex(".*\\b\\d+\\s+of\\s+\\d+\\b.*", RegexOption.IGNORE_CASE)
+
         fun isAdKeyword(str: String?): Boolean {
             if (str.isNullOrBlank()) return false
             val s = str.lowercase().trim()
@@ -45,11 +47,15 @@ class SpotifyNotificationListener : NotificationListenerService() {
                    s == "ad" ||
                    s.startsWith("ad •") ||
                    s.startsWith("ad  •") ||
+                   s.startsWith("ad -") ||
                    s.endsWith("• ad") ||
                    s.contains("• ad •") ||
                    s.contains("spotify sponsor") ||
                    s.contains("sponsored") ||
-                   s.contains("audio ad")
+                   s.contains("audio ad") ||
+                   s.contains("video ad") ||
+                   s.contains("commercial") ||
+                   AD_SLOT_REGEX.matches(s)
         }
     }
 

@@ -255,3 +255,161 @@ export function addTrackCommittedListener(
   return { remove: () => {} };
 }
 
+export function isAutoDownloadEnabled(): boolean {
+  try {
+    return SpotifyAdSkipperModule?.isAutoDownloadEnabled() ?? true;
+  } catch {
+    return true;
+  }
+}
+
+export function setAutoDownloadEnabled(enabled: boolean): boolean {
+  try {
+    return SpotifyAdSkipperModule?.setAutoDownloadEnabled(enabled) ?? false;
+  } catch {
+    return false;
+  }
+}
+
+export function downloadTrack(
+  title: string,
+  artist: string,
+  album: string,
+  trackId: string,
+  id?: string,
+  durationMs?: number
+): string {
+  try {
+    return SpotifyAdSkipperModule?.downloadTrack(title, artist, album, trackId, id, durationMs) ?? '';
+  } catch (e) {
+    console.error('Failed to trigger track download', e);
+    return '';
+  }
+}
+
+export function redownloadAllTracks(): boolean {
+  try {
+    return SpotifyAdSkipperModule?.redownloadAllTracks() ?? false;
+  } catch (e) {
+    console.error('Failed to trigger redownload of all tracks', e);
+    return false;
+  }
+}
+
+export function getMusicDownloadDirectory(): string {
+  try {
+    return SpotifyAdSkipperModule?.getMusicDownloadDirectory() ?? '';
+  } catch {
+    return '';
+  }
+}
+
+export function addDownloadStatusChangedListener(
+  listener: (event: import('./src/SpotifyAdSkipper.types').DownloadStatusChangedPayload) => void
+): EventSubscription {
+  try {
+    if (SpotifyAdSkipperModule && typeof SpotifyAdSkipperModule.addListener === 'function') {
+      return SpotifyAdSkipperModule.addListener('onDownloadStatusChanged', listener);
+    }
+  } catch (e) {
+    console.warn('Could not attach addDownloadStatusChangedListener', e);
+  }
+  return { remove: () => {} };
+}
+
+export function playLocalTrack(filePath: string, title: string, artist: string): boolean {
+  try {
+    return SpotifyAdSkipperModule?.playLocalTrack(filePath, title, artist) ?? false;
+  } catch (e) {
+    console.error('Failed to play local track', e);
+    return false;
+  }
+}
+
+export function pauseLocalTrack(): boolean {
+  try {
+    return SpotifyAdSkipperModule?.pauseLocalTrack() ?? false;
+  } catch (e) {
+    console.error('Failed to pause local track', e);
+    return false;
+  }
+}
+
+export function resumeLocalTrack(): boolean {
+  try {
+    return SpotifyAdSkipperModule?.resumeLocalTrack() ?? false;
+  } catch (e) {
+    console.error('Failed to resume local track', e);
+    return false;
+  }
+}
+
+export function seekLocalTrack(positionMs: number): boolean {
+  try {
+    return SpotifyAdSkipperModule?.seekLocalTrack(positionMs) ?? false;
+  } catch (e) {
+    console.error('Failed to seek local track', e);
+    return false;
+  }
+}
+
+export function stopLocalTrack(): boolean {
+  try {
+    return SpotifyAdSkipperModule?.stopLocalTrack() ?? false;
+  } catch (e) {
+    console.error('Failed to stop local track', e);
+    return false;
+  }
+}
+
+export function getLocalPlayerState(): import('./src/SpotifyAdSkipper.types').LocalPlayerState {
+  try {
+    return (
+      SpotifyAdSkipperModule?.getLocalPlayerState() ?? {
+        isPlaying: false,
+        positionMs: 0,
+        durationMs: 0,
+        title: '',
+        artist: '',
+        filePath: '',
+      }
+    );
+  } catch {
+    return {
+      isPlaying: false,
+      positionMs: 0,
+      durationMs: 0,
+      title: '',
+      artist: '',
+      filePath: '',
+    };
+  }
+}
+
+export function addLocalPlayerStateListener(
+  listener: (event: import('./src/SpotifyAdSkipper.types').LocalPlayerState) => void
+): EventSubscription {
+  try {
+    if (SpotifyAdSkipperModule && typeof SpotifyAdSkipperModule.addListener === 'function') {
+      return SpotifyAdSkipperModule.addListener('onLocalPlayerStateChanged', listener);
+    }
+  } catch (e) {
+    console.warn('Could not attach addLocalPlayerStateListener', e);
+  }
+  return { remove: () => {} };
+}
+
+export function addLocalPlayerCompletedListener(
+  listener: () => void
+): EventSubscription {
+  try {
+    if (SpotifyAdSkipperModule && typeof SpotifyAdSkipperModule.addListener === 'function') {
+      return SpotifyAdSkipperModule.addListener('onLocalPlayerCompleted', listener);
+    }
+  } catch (e) {
+    console.warn('Could not attach addLocalPlayerCompletedListener', e);
+  }
+  return { remove: () => {} };
+}
+
+

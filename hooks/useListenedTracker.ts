@@ -3,7 +3,13 @@ import { AppState, AppStateStatus } from 'react-native';
 import {
   addMetadataChangedListener,
   addTrackCommittedListener,
+  addDownloadStatusChangedListener,
+  downloadTrack,
+  isAutoDownloadEnabled,
+  setAutoDownloadEnabled,
+  getMusicDownloadDirectory,
   MetadataChangedPayload,
+  DownloadStatusChangedPayload,
 } from '../modules/spotify-ad-skipper';
 import {
   clearListenedTracks,
@@ -29,6 +35,8 @@ interface ActiveSession {
 
 export function useListenedTracker() {
   const [listenedTracks, setListenedTracks] = useState<ListenedTrack[]>([]);
+  const [autoDownload, setAutoDownload] = useState<boolean>(true);
+  const [musicDir, setMusicDir] = useState<string>('');
   const [stats, setStats] = useState<ListenedStats>({
     totalListenedCount: 0,
     uniqueTracksCount: 0,
@@ -54,6 +62,8 @@ export function useListenedTracker() {
       ]);
       setListenedTracks(tracks);
       setStats(loadedStats);
+      setAutoDownload(isAutoDownloadEnabled());
+      setMusicDir(getMusicDownloadDirectory());
     } catch (e) {
       console.warn('Error loading listened tracks history', e);
     }
@@ -74,9 +84,31 @@ export function useListenedTracker() {
       loadInitialData();
     });
 
+    // Real-time audio downloader listener
+    const downloadSub = addDownloadStatusChangedListener((event: DownloadStatusChangedPayload) => {
+      setListenedTracks((prev) =>
+        prev.map((t) => {
+          const isMatch =
+            (event.id && t.id === event.id) ||
+            (t.title.toLowerCase() === event.title.toLowerCase() &&
+              t.artist.toLowerCase() === event.artist.toLowerCase());
+          if (isMatch) {
+            return {
+              ...t,
+              downloadStatus: event.status,
+              progress: event.progress,
+              localFilePath: event.filePath || t.localFilePath,
+            };
+          }
+          return t;
+        })
+      );
+    });
+
     return () => {
       appStateSub.remove();
       commitSub.remove();
+      downloadSub.remove();
     };
   }, [loadInitialData]);
 
@@ -223,10 +255,75 @@ export function useListenedTracker() {
     });
   }, []);
 
+  const toggleAutoDownload = useCallback((enabled: boolean) => {
+    setAutoDownloadEnabled(enabled);
+    setAutoDownload(enabled);
+  }, []);
+
+  const downloadSong = useCallback(async (track: ListenedTrack) => {
+    const cleanTitle = track.title.trim();
+    const cleanArtist = track.artist.trim();
+
+    const queuedTrack: ListenedTrack = {
+      ...track,
+      title: cleanTitle,
+      artist: cleanArtist,
+      album: track.album || 'Discoveries',
+      downloadStatus: 'queued',
+      progress: 0,
+      lastListenedAt: track.lastListenedAt || Date.now(),
+      firstListenedAt: track.firstListenedAt || Date.now(),
+      listenCount: track.listenCount || 1,
+      totalDurationListenedMs: track.totalDurationListenedMs || 30000,
+    };
+
+    setListenedTracks((prev) => {
+      const exists = prev.some(
+        (t) =>
+          t.id === track.id ||
+          (t.title.trim().toLowerCase() === cleanTitle.toLowerCase() &&
+            t.artist.trim().toLowerCase() === cleanArtist.toLowerCase())
+      );
+
+      if (exists) {
+        return prev.map((t) =>
+          t.id === track.id ||
+          (t.title.trim().toLowerCase() === cleanTitle.toLowerCase() &&
+            t.artist.trim().toLowerCase() === cleanArtist.toLowerCase())
+            ? { ...t, downloadStatus: 'queued', progress: 0 }
+            : t
+        );
+      } else {
+        return [queuedTrack, ...prev];
+      }
+    });
+
+    try {
+      await saveListenedTrack({
+        title: cleanTitle,
+        artist: cleanArtist,
+        album: track.album || 'Discoveries',
+        trackId: track.trackId || '',
+        durationMs: track.durationMs || 180000,
+        totalDurationListenedMs: track.totalDurationListenedMs || 30000,
+      });
+      const newStats = await getListenedStats();
+      setStats(newStats);
+    } catch (e) {
+      console.warn('Error saving downloaded track to library', e);
+    }
+
+    downloadTrack(cleanTitle, cleanArtist, track.album || 'Discoveries', track.trackId || '', track.id, track.durationMs || 0);
+  }, []);
+
   return {
     listenedTracks,
     stats,
     activePlayback,
+    autoDownload,
+    toggleAutoDownload,
+    downloadSong,
+    musicDir,
     deleteTrack,
     clearAll,
     refreshTracks: loadInitialData,
