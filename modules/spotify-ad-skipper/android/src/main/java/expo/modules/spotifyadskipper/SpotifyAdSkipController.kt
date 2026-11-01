@@ -307,21 +307,22 @@ object SpotifyAdSkipController {
         val handler = Handler(Looper.getMainLooper())
 
         try {
-            // STEP 1: Check screen state & acquire WakeLock so CPU doesn't sleep during the settle delay
-            if (wasScreenOff) {
-                Log.i(TAG, "Screen is off/sleeping. Acquiring WakeLock for settle delay and skip automation.")
-                try {
-                    val powerManager = context.getSystemService(Context.POWER_SERVICE) as? PowerManager
-                    wakeLock?.let { if (it.isHeld) it.release() }
-                    @Suppress("DEPRECATION")
-                    wakeLock = powerManager?.newWakeLock(
-                        PowerManager.SCREEN_BRIGHT_WAKE_LOCK or PowerManager.ACQUIRE_CAUSES_WAKEUP or PowerManager.ON_AFTER_RELEASE,
-                        "spotifyadskip:wake_for_skip"
-                    )
-                    wakeLock?.acquire(12000L)
-                } catch (e: Exception) {
-                    Log.e(TAG, "Failed to acquire screen wakeup WakeLock", e)
+            // STEP 1: Acquire a WakeLock for the duration of the skip so the display cannot
+            // time out mid-sequence (which would abort the previous-app restore step).
+            try {
+                val powerManager = context.getSystemService(Context.POWER_SERVICE) as? PowerManager
+                wakeLock?.let { if (it.isHeld) it.release() }
+                @Suppress("DEPRECATION")
+                wakeLock = powerManager?.newWakeLock(
+                    PowerManager.SCREEN_BRIGHT_WAKE_LOCK or PowerManager.ACQUIRE_CAUSES_WAKEUP or PowerManager.ON_AFTER_RELEASE,
+                    "spotifyadskip:wake_for_skip"
+                )
+                wakeLock?.acquire(15000L)
+                if (wasScreenOff) {
+                    Log.i(TAG, "Screen is off/sleeping. WakeLock will wake display for skip automation.")
                 }
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to acquire screen wakeup WakeLock", e)
             }
 
             // STEP 2: Ensure audio is muted immediately
@@ -384,7 +385,6 @@ object SpotifyAdSkipController {
 
             } catch (e: Exception) {
                 Log.e(TAG, "Error in relaunch step", e)
-                try { wakeLock?.let { if (it.isHeld) it.release() } } catch (e: Exception) {}
                 finishSkipAndRestoreState(context)
             }
         }, 400L)
@@ -511,31 +511,42 @@ object SpotifyAdSkipController {
 
     fun finishSkipAndRestoreState(context: Context) {
         val handler = Handler(Looper.getMainLooper())
+
+        // Guard against double-invocation (finalizeResume and the ad watcher can race);
+        // a second call with cleared state would otherwise navigate to the Home screen.
+        if (!isSkipping.getAndSet(false)) {
+            Log.d(TAG, "finishSkipAndRestoreState called with no active skip sequence; ignoring")
+            return
+        }
+
         if (wasScreenOff) {
+            wasScreenOff = false
+            packageBeforeSkip = null
             Log.i(TAG, "Restoring screen-off state via GLOBAL_ACTION_LOCK_SCREEN")
             handler.postDelayed({
                 SpotifyAccessibilityService.lockScreen()
-                try {
-                    wakeLock?.let { if (it.isHeld) it.release() }
-                } catch (e: Exception) {
-                    Log.e(TAG, "Error releasing wakeLock", e)
-                }
+                releaseWakeLock()
             }, 500L)
         } else {
-            // Screen was ON: Return to the app or window the user was on before the skip!
-            val powerManager = context.getSystemService(Context.POWER_SERVICE) as? PowerManager
-            if (powerManager?.isInteractive == true) {
-                val targetToRestore = packageBeforeSkip
-                packageBeforeSkip = null
-                Log.i(TAG, "Screen was on during skip. Restoring previous app/window: '$targetToRestore'")
-                handler.postDelayed({
-                    SpotifyAccessibilityService.restoreAppOrWindow(context, targetToRestore)
-                }, 300L)
-            } else {
-                packageBeforeSkip = null
-            }
+            // Screen was ON at detection: always return to the app the user was on before
+            // the skip, even if the display went to sleep mid-sequence (the restored app
+            // will surface on unlock).
+            val targetToRestore = packageBeforeSkip
+            packageBeforeSkip = null
+            Log.i(TAG, "Screen was on during skip. Restoring previous app/window: '$targetToRestore'")
+            handler.postDelayed({
+                SpotifyAccessibilityService.restoreAppOrWindow(context, targetToRestore)
+            }, 300L)
+            handler.postDelayed({ releaseWakeLock() }, 800L)
         }
-        isSkipping.set(false)
+    }
+
+    private fun releaseWakeLock() {
+        try {
+            wakeLock?.let { if (it.isHeld) it.release() }
+        } catch (e: Exception) {
+            Log.e(TAG, "Error releasing wakeLock", e)
+        }
     }
 
     private fun killSpotifyFallback(context: Context) {
